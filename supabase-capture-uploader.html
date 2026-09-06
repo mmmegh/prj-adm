@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Project Adam Capture Uploader</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
+    section { border: 1px solid #8886; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }
+    label { display: block; margin: .7rem 0 .25rem; }
+    input, button { font: inherit; padding: .55rem; }
+    input[type="email"], input[type="password"] { width: min(28rem, calc(100% - 1.2rem)); }
+    button { cursor: pointer; margin: .5rem .35rem 0 0; }
+    code { overflow-wrap: anywhere; }
+    .muted { opacity: .72; }
+    .error { color: #d33; }
+    .success { color: #198754; }
+    #captures { padding-left: 1.25rem; }
+    #captures li { margin: .65rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Project Adam Capture Uploader</h1>
+  <p class="muted">Uploads sanitized scraper JSON only. Raw HAR files are never accepted.</p>
+
+  <section id="setup-panel">
+    <strong>Setup required</strong>
+    <p>Edit this HTML file and replace the two placeholders near the top of its script with your Supabase Project URL and publishable key.</p>
+  </section>
+
+  <section>
+    <h2>Sign in</h2>
+    <form id="login-form">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <div>
+        <button type="submit">Sign in</button>
+        <button id="sign-out" type="button" hidden>Sign out</button>
+      </div>
+    </form>
+    <p id="auth-status" aria-live="polite">Not signed in.</p>
+  </section>
+
+  <section>
+    <h2>Upload capture</h2>
+    <form id="upload-form">
+      <label for="capture-file">Sanitized scraper JSON</label>
+      <input id="capture-file" type="file" accept="application/json,.json" required disabled>
+      <div><button id="upload-button" type="submit" disabled>Validate and upload</button></div>
+    </form>
+    <p id="upload-status" aria-live="polite">Sign in first.</p>
+  </section>
+
+  <section>
+    <h2>Your captures</h2>
+    <button id="refresh-button" type="button" disabled>Refresh</button>
+    <ol id="captures"><li class="muted">Sign in to load captures.</li></ol>
+  </section>
+
+  <script type="module">
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+    // These two browser-facing values are designed to be public.
+    // Never place a secret key, service_role key, or database password here.
+    const SUPABASE_URL = "https://uzmlbhppnmonxlzdinik.supabase.co";
+    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_4p_0JKQvmGYYRojxu9IXjQ_B47cx8xc";
+
+    const configured =
+      /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(SUPABASE_URL) &&
+      !SUPABASE_PUBLISHABLE_KEY.includes("PASTE_");
+
+    const setupPanel = document.querySelector("#setup-panel");
+    const loginForm = document.querySelector("#login-form");
+    const signOutButton = document.querySelector("#sign-out");
+    const authStatus = document.querySelector("#auth-status");
+    const uploadForm = document.querySelector("#upload-form");
+    const fileInput = document.querySelector("#capture-file");
+    const uploadButton = document.querySelector("#upload-button");
+    const uploadStatus = document.querySelector("#upload-status");
+    const refreshButton = document.querySelector("#refresh-button");
+    const captureList = document.querySelector("#captures");
+
+    let supabase = null;
+
+    function setStatus(element, message, kind = "") {
+      element.textContent = message;
+      element.className = kind;
+    }
+
+    function setSignedIn(user) {
+      const signedIn = Boolean(user);
+      fileInput.disabled = !signedIn;
+      uploadButton.disabled = !signedIn;
+      refreshButton.disabled = !signedIn;
+      signOutButton.hidden = !signedIn;
+      loginForm.querySelector('button[type="submit"]').disabled = signedIn;
+      loginForm.email.disabled = signedIn;
+      loginForm.password.disabled = signedIn;
+      setStatus(authStatus, signedIn ? `Signed in as ${user.email}.` : "Not signed in.", signedIn ? "success" : "");
+      if (!signedIn) {
+        captureList.replaceChildren(Object.assign(document.createElement("li"), {
+          textContent: "Sign in to load captures.",
+          className: "muted"
+        }));
+        setStatus(uploadStatus, "Sign in first.");
+      }
+    }
+
+    function uniqueInteger(records, field) {
+      const values = [...new Set(records
+        .map(record => record?.[field])
+        .filter(value => value !== null && value !== undefined && value !== "")
+        .map(Number)
+        .filter(Number.isInteger))];
+      return values.length === 1 ? values[0] : null;
+    }
+
+    function validatePayload(payload, byteLength) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new Error("The JSON root must be an object.");
+      }
+      if (typeof payload.format !== "string" || !payload.format.trim()) {
+        throw new Error("Missing string field: format.");
+      }
+      if (!Array.isArray(payload.tiles)) {
+        throw new Error("Missing array field: tiles.");
+      }
+      if (!Array.isArray(payload.coordinate_records)) {
+        throw new Error("Missing array field: coordinate_records.");
+      }
+      if (byteLength < 2 || byteLength > 5 * 1024 * 1024) {
+        throw new Error("The JSON file must be between 2 bytes and 5 MiB.");
+      }
+    }
+
+    async function sha256Hex(bytes) {
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      return [...new Uint8Array(digest)]
+        .map(byte => byte.toString(16).padStart(2, "0"))
+        .join("");
+    }
+
+    async function loadCaptures() {
+      setStatus(authStatus, authStatus.textContent);
+      const { data, error } = await supabase
+        .from("captures")
+        .select("id, created_at, format_version, map_id, area_id, source_filename, payload_sha256, payload_size_bytes")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        captureList.replaceChildren(Object.assign(document.createElement("li"), {
+          textContent: `Could not load captures: ${error.message}`,
+          className: "error"
+        }));
+        return;
+      }
+
+      captureList.replaceChildren();
+      if (!data.length) {
+        captureList.append(Object.assign(document.createElement("li"), {
+          textContent: "No captures uploaded yet.",
+          className: "muted"
+        }));
+        return;
+      }
+
+      for (const capture of data) {
+        const item = document.createElement("li");
+        const title = document.createElement("strong");
+        title.textContent = capture.source_filename;
+        const details = document.createElement("div");
+        details.className = "muted";
+        details.textContent = [
+          new Date(capture.created_at).toLocaleString(),
+          `format ${capture.format_version}`,
+          `map ${capture.map_id ?? "mixed/unknown"}`,
+          `area ${capture.area_id ?? "mixed/unknown"}`,
+          `${capture.payload_size_bytes.toLocaleString()} bytes`,
+          `SHA-256 ${capture.payload_sha256.slice(0, 12)}…`
+        ].join(" · ");
+        item.append(title, details);
+        captureList.append(item);
+      }
+    }
+
+    if (!configured) {
+      setStatus(authStatus, "Add the Project URL and publishable key to the HTML file first.", "error");
+      loginForm.querySelector('button[type="submit"]').disabled = true;
+    } else {
+      setupPanel.hidden = true;
+      supabase = createClient(SUPABASE_URL.replace(/\/$/, ""), SUPABASE_PUBLISHABLE_KEY, {
+        auth: { persistSession: true, autoRefreshToken: true }
+      });
+
+      const { data: { session } } = await supabase.auth.getSession();
+      setSignedIn(session?.user ?? null);
+      if (session?.user) await loadCaptures();
+
+      supabase.auth.onAuthStateChange((_event, nextSession) => {
+        setSignedIn(nextSession?.user ?? null);
+      });
+    }
+
+    loginForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      if (!supabase) return;
+      setStatus(authStatus, "Signing in…");
+      const form = new FormData(loginForm);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: String(form.get("email")),
+        password: String(form.get("password"))
+      });
+      loginForm.password.value = "";
+      if (error) {
+        setSignedIn(null);
+        setStatus(authStatus, `Sign-in failed: ${error.message}`, "error");
+        return;
+      }
+      setSignedIn(data.user);
+      await loadCaptures();
+    });
+
+    signOutButton.addEventListener("click", async () => {
+      const { error } = await supabase.auth.signOut();
+      if (error) setStatus(authStatus, `Sign-out failed: ${error.message}`, "error");
+    });
+
+    uploadForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const file = fileInput.files[0];
+      if (!file || !supabase) return;
+
+      uploadButton.disabled = true;
+      setStatus(uploadStatus, "Reading and validating…");
+
+      try {
+        const bytes = await file.arrayBuffer();
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        let payload;
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          throw new Error("The selected file is not valid JSON.");
+        }
+
+        validatePayload(payload, bytes.byteLength);
+        const hash = await sha256Hex(bytes);
+        const records = payload.coordinate_records;
+        const row = {
+          format_version: payload.format,
+          map_id: uniqueInteger(records, "map_id"),
+          area_id: uniqueInteger(records, "area_id"),
+          source_filename: file.name.slice(0, 255),
+          payload,
+          payload_sha256: hash,
+          payload_size_bytes: bytes.byteLength
+        };
+
+        setStatus(uploadStatus, "Uploading…");
+        const { error } = await supabase.from("captures").insert(row);
+        if (error) {
+          if (error.code === "23505") throw new Error("This exact capture is already stored (matching SHA-256 hash).");
+          throw new Error(error.message);
+        }
+
+        fileInput.value = "";
+        setStatus(uploadStatus, "Capture uploaded successfully.", "success");
+        await loadCaptures();
+      } catch (error) {
+        setStatus(uploadStatus, `Upload failed: ${error.message}`, "error");
+      } finally {
+        uploadButton.disabled = false;
+      }
+    });
+
+    refreshButton.addEventListener("click", loadCaptures);
+  </script>
+</body>
+</html>
