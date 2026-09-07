@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Project Adam Capture Uploader</title>
+  <title>Project Adam Capture Uploader v1.1</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
     body { max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
@@ -21,7 +21,7 @@
   </style>
 </head>
 <body>
-  <h1>Project Adam Capture Uploader</h1>
+  <h1>Project Adam Capture Uploader <span class="muted">v1.1</span></h1>
   <p class="muted">Uploads sanitized Project Adam research JSON only. Raw HAR files are never accepted.</p>
 
   <section id="setup-panel">
@@ -54,7 +54,7 @@
     <p id="upload-status" aria-live="polite">Sign in first.</p>
     <details>
       <summary>Accepted record collections</summary>
-      <p class="muted">Map tiles and coordinates; map anchors; calculator characters and skills; canonical character metadata; constellation observations; concept measurements; and projected Fate/P7 records. The original JSON is stored intact.</p>
+      <p class="muted">Sanitized HAR-scraper captures; full official character catalogs; individual JSON maps extracted from the official map-catalog ZIP; map anchors; constellation observations; concept measurements; and projected Fate/P7 records. The original JSON is stored intact.</p>
     </details>
   </section>
 
@@ -97,6 +97,9 @@
       calculator_characters: "calculator characters",
       calculator_skills: "calculator skills",
       canonical_character_records: "canonical characters",
+      records: "catalog records",
+      points: "map points",
+      maps: "map manifest entries",
       constellation_observations: "constellation observations",
       concept_measurements: "concept measurements",
       fate_projections: "Fate/P7 projections"
@@ -139,12 +142,21 @@
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         throw new Error("The JSON root must be an object.");
       }
-      if (typeof payload.format !== "string" || !payload.format.trim()) {
-        throw new Error("Missing string field: format.");
+      if (byteLength < 2 || byteLength > 25 * 1024 * 1024) {
+        throw new Error("The JSON file must be between 2 bytes and 25 MiB.");
       }
-      if (byteLength < 2 || byteLength > 5 * 1024 * 1024) {
-        throw new Error("The JSON file must be between 2 bytes and 5 MiB.");
+
+      const declaredFormat = typeof payload.format === "string" ? payload.format.trim() : "";
+      const isMapCatalogFile =
+        Number.isInteger(Number(payload.map_id)) &&
+        typeof payload.name === "string" &&
+        Array.isArray(payload.points);
+
+      if (!declaredFormat && !isMapCatalogFile) {
+        throw new Error("Missing string field: format. Individual official map-catalog JSON files are the only supported exception.");
       }
+
+      const formatVersion = declaredFormat || "project-adam-official-map-catalog-map/v1";
 
       const present = [];
       for (const [field, label] of Object.entries(SUPPORTED_COLLECTIONS)) {
@@ -160,7 +172,12 @@
       if (!present.some(collection => collection.count > 0)) {
         throw new Error("All supported record collections are empty.");
       }
-      return present;
+      const primaryRecords =
+        Array.isArray(payload.coordinate_records) ? payload.coordinate_records :
+        Array.isArray(payload.points) ? payload.points :
+        Array.isArray(payload.records) ? payload.records : [];
+
+      return { collections: present, formatVersion, primaryRecords, isMapCatalogFile };
     }
 
     function collectionSummary(collections) {
@@ -280,13 +297,13 @@
           throw new Error("The selected file is not valid JSON.");
         }
 
-        const collections = validatePayload(payload, bytes.byteLength);
+        const validation = validatePayload(payload, bytes.byteLength);
         const hash = await sha256Hex(bytes);
-        const records = Array.isArray(payload.coordinate_records) ? payload.coordinate_records : [];
+        const rootMapId = Number(payload.map_id);
         const row = {
-          format_version: payload.format,
-          map_id: uniqueInteger(records, "map_id"),
-          area_id: uniqueInteger(records, "area_id"),
+          format_version: validation.formatVersion,
+          map_id: Number.isInteger(rootMapId) ? rootMapId : uniqueInteger(validation.primaryRecords, "map_id"),
+          area_id: uniqueInteger(validation.primaryRecords, "area_id"),
           source_filename: file.name.slice(0, 255),
           payload,
           payload_sha256: hash,
@@ -301,7 +318,7 @@
         }
 
         fileInput.value = "";
-        setStatus(uploadStatus, `Capture uploaded successfully: ${collectionSummary(collections)}.`, "success");
+        setStatus(uploadStatus, `Capture uploaded successfully: ${collectionSummary(validation.collections)}.`, "success");
         await loadCaptures();
       } catch (error) {
         setStatus(uploadStatus, `Upload failed: ${error.message}`, "error");
