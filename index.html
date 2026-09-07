@@ -22,7 +22,7 @@
 </head>
 <body>
   <h1>Project Adam Capture Uploader</h1>
-  <p class="muted">Uploads sanitized scraper JSON only. Raw HAR files are never accepted.</p>
+  <p class="muted">Uploads sanitized Project Adam research JSON only. Raw HAR files are never accepted.</p>
 
   <section id="setup-panel">
     <strong>Setup required</strong>
@@ -47,11 +47,15 @@
   <section>
     <h2>Upload capture</h2>
     <form id="upload-form">
-      <label for="capture-file">Sanitized scraper JSON</label>
+      <label for="capture-file">Sanitized research JSON</label>
       <input id="capture-file" type="file" accept="application/json,.json" required disabled>
       <div><button id="upload-button" type="submit" disabled>Validate and upload</button></div>
     </form>
     <p id="upload-status" aria-live="polite">Sign in first.</p>
+    <details>
+      <summary>Accepted record collections</summary>
+      <p class="muted">Map tiles and coordinates; map anchors; calculator characters and skills; canonical character metadata; constellation observations; concept measurements; and projected Fate/P7 records. The original JSON is stored intact.</p>
+    </details>
   </section>
 
   <section>
@@ -84,6 +88,19 @@
     const captureList = document.querySelector("#captures");
 
     let supabase = null;
+
+    const SUPPORTED_COLLECTIONS = Object.freeze({
+      tiles: "tiles",
+      coordinate_records: "coordinates",
+      marker_definitions: "marker definitions",
+      anchor_candidates: "anchor candidates",
+      calculator_characters: "calculator characters",
+      calculator_skills: "calculator skills",
+      canonical_character_records: "canonical characters",
+      constellation_observations: "constellation observations",
+      concept_measurements: "concept measurements",
+      fate_projections: "Fate/P7 projections"
+    });
 
     function setStatus(element, message, kind = "") {
       element.textContent = message;
@@ -125,15 +142,32 @@
       if (typeof payload.format !== "string" || !payload.format.trim()) {
         throw new Error("Missing string field: format.");
       }
-      if (!Array.isArray(payload.tiles)) {
-        throw new Error("Missing array field: tiles.");
-      }
-      if (!Array.isArray(payload.coordinate_records)) {
-        throw new Error("Missing array field: coordinate_records.");
-      }
       if (byteLength < 2 || byteLength > 5 * 1024 * 1024) {
         throw new Error("The JSON file must be between 2 bytes and 5 MiB.");
       }
+
+      const present = [];
+      for (const [field, label] of Object.entries(SUPPORTED_COLLECTIONS)) {
+        if (!(field in payload)) continue;
+        if (!Array.isArray(payload[field])) {
+          throw new Error(`Field ${field} must be an array when present.`);
+        }
+        present.push({ field, label, count: payload[field].length });
+      }
+      if (!present.length) {
+        throw new Error(`No supported record collection found. Expected at least one of: ${Object.keys(SUPPORTED_COLLECTIONS).join(", ")}.`);
+      }
+      if (!present.some(collection => collection.count > 0)) {
+        throw new Error("All supported record collections are empty.");
+      }
+      return present;
+    }
+
+    function collectionSummary(collections) {
+      return collections
+        .filter(collection => collection.count > 0)
+        .map(collection => `${collection.count} ${collection.label}`)
+        .join(" · ");
     }
 
     async function sha256Hex(bytes) {
@@ -246,9 +280,9 @@
           throw new Error("The selected file is not valid JSON.");
         }
 
-        validatePayload(payload, bytes.byteLength);
+        const collections = validatePayload(payload, bytes.byteLength);
         const hash = await sha256Hex(bytes);
-        const records = payload.coordinate_records;
+        const records = Array.isArray(payload.coordinate_records) ? payload.coordinate_records : [];
         const row = {
           format_version: payload.format,
           map_id: uniqueInteger(records, "map_id"),
@@ -267,7 +301,7 @@
         }
 
         fileInput.value = "";
-        setStatus(uploadStatus, "Capture uploaded successfully.", "success");
+        setStatus(uploadStatus, `Capture uploaded successfully: ${collectionSummary(collections)}.`, "success");
         await loadCaptures();
       } catch (error) {
         setStatus(uploadStatus, `Upload failed: ${error.message}`, "error");
