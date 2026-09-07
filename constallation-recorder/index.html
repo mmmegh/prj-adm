@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Project Adam Constellation Checker v0.2.2</title>
+  <title>Project Adam Constellation Checker v0.2.3</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
     * { box-sizing: border-box; }
@@ -52,7 +52,7 @@
   </style>
 </head>
 <body>
-  <h1>Project Adam Constellation Checker <span class="muted">v0.2.2</span></h1>
+  <h1>Project Adam Constellation Checker <span class="muted">v0.2.3</span></h1>
   <p class="muted">Six observed points, activation order, visible graph topology, reloadable source images, and optional heights. P6→P1 and generated P7 are not silently added.</p>
 
   <section id="setup-panel">
@@ -124,9 +124,11 @@
       <h2 style="margin-top:1rem">Line-fit classification</h2>
       <div class="radio-row">
         <label><input type="radio" name="line-fit" value="normal_fit"> Normal fit</label>
-        <label><input type="radio" name="line-fit" value="extra_lines"> Extra lines</label>
+        <label><input type="radio" name="line-fit" value="custom"> Custom lines</label>
         <label><input type="radio" name="line-fit" value="uncertain" checked> Uncertain</label>
       </div>
+      <p class="muted">Normal fit records the five activation-path lines. Custom lines starts from that path and lets you toggle any line off or on. Faint gold is only the click-order reference; solid cyan means the line is visibly present.</p>
+      <p id="line-fit-derived" class="muted">Stored classification: Uncertain.</p>
       <h2 style="margin-top:1rem">Tags</h2>
       <div class="tag-entry">
         <input id="tag-input" type="text" maxlength="80" placeholder="bird, fox, nightingale…" aria-label="New tag">
@@ -190,6 +192,6 @@
     <ol id="measurements"><li class="muted">Sign in to load measurements.</li></ol>
   </section>
 
-  <script type="module" src="./project-adam-constellation-checker-v0.2.2.js"></script>
+  <script type="module" src="./project-adam-constellation-checker-v0.2.3.js"></script>
 </body>
 </html>
