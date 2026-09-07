@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Project Adam Capture Uploader v1.1</title>
+  <title>Project Adam Capture Uploader v1.2</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
     body { max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
@@ -21,7 +21,7 @@
   </style>
 </head>
 <body>
-  <h1>Project Adam Capture Uploader <span class="muted">v1.1</span></h1>
+  <h1>Project Adam Capture Uploader <span class="muted">v1.2</span></h1>
   <p class="muted">Uploads sanitized Project Adam research JSON only. Raw HAR files are never accepted.</p>
 
   <section id="setup-panel">
@@ -54,7 +54,7 @@
     <p id="upload-status" aria-live="polite">Sign in first.</p>
     <details>
       <summary>Accepted record collections</summary>
-      <p class="muted">Sanitized HAR-scraper captures; full official character catalogs; individual JSON maps extracted from the official map-catalog ZIP; map anchors; constellation observations; concept measurements; and projected Fate/P7 records. The original JSON is stored intact.</p>
+      <p class="muted">Sanitized HAR-scraper captures; full official character catalogs; individual JSON maps extracted from the official map-catalog ZIP; map anchors; constellation observations; concept measurements; and projected Fate/P7 records. Oversized map files are automatically stored as reconstructable 5,000-point chunks.</p>
     </details>
   </section>
 
@@ -88,6 +88,7 @@
     const captureList = document.querySelector("#captures");
 
     let supabase = null;
+    const MAP_CHUNK_SIZE = 5000;
 
     const SUPPORTED_COLLECTIONS = Object.freeze({
       tiles: "tiles",
@@ -194,6 +195,53 @@
         .join("");
     }
 
+    function captureRow(payload, validation, sourceFilename, hash, byteLength) {
+      const rootMapId = Number(payload.map_id);
+      return {
+        format_version: validation.formatVersion,
+        map_id: Number.isInteger(rootMapId) ? rootMapId : uniqueInteger(validation.primaryRecords, "map_id"),
+        area_id: uniqueInteger(validation.primaryRecords, "area_id"),
+        source_filename: sourceFilename.slice(0, 255),
+        payload,
+        payload_sha256: hash,
+        payload_size_bytes: byteLength
+      };
+    }
+
+    function mapChunkPayloads(payload, sourceFilename, sourceHash, sourceByteLength) {
+      if (!Array.isArray(payload.points) || payload.points.length <= MAP_CHUNK_SIZE) return [];
+
+      const { points, ...mapMetadata } = payload;
+      const chunkCount = Math.ceil(points.length / MAP_CHUNK_SIZE);
+      return Array.from({ length: chunkCount }, (_, index) => {
+        const start = index * MAP_CHUNK_SIZE;
+        const end = Math.min(start + MAP_CHUNK_SIZE, points.length);
+        const chunk = {
+          format: "project-adam-official-map-catalog-map-chunk/v1",
+          source_format: "project-adam-official-map-catalog-map/v1",
+          source_filename: sourceFilename,
+          source_file_sha256: sourceHash,
+          source_file_size_bytes: sourceByteLength,
+          map_id: payload.map_id,
+          map_name: payload.name,
+          chunk_index: index + 1,
+          chunk_count: chunkCount,
+          point_start_index: start,
+          point_end_index_exclusive: end,
+          source_point_count: points.length,
+          points: points.slice(start, end)
+        };
+        if (index === 0) chunk.map_metadata = mapMetadata;
+        return chunk;
+      });
+    }
+
+    function chunkFilename(filename, index, count) {
+      const stem = filename.toLowerCase().endsWith(".json") ? filename.slice(0, -5) : filename;
+      const width = String(count).length;
+      return `${stem}.part-${String(index).padStart(width, "0")}-of-${count}.json`;
+    }
+
     async function loadCaptures() {
       setStatus(authStatus, authStatus.textContent);
       const { data, error } = await supabase
@@ -297,19 +345,49 @@
           throw new Error("The selected file is not valid JSON.");
         }
 
-        const validation = validatePayload(payload, bytes.byteLength);
         const hash = await sha256Hex(bytes);
-        const rootMapId = Number(payload.map_id);
-        const row = {
-          format_version: validation.formatVersion,
-          map_id: Number.isInteger(rootMapId) ? rootMapId : uniqueInteger(validation.primaryRecords, "map_id"),
-          area_id: uniqueInteger(validation.primaryRecords, "area_id"),
-          source_filename: file.name.slice(0, 255),
-          payload,
-          payload_sha256: hash,
-          payload_size_bytes: bytes.byteLength
-        };
+        const validation = validatePayload(payload, bytes.byteLength);
+        const chunks = validation.isMapCatalogFile
+          ? mapChunkPayloads(payload, file.name, hash, bytes.byteLength)
+          : [];
 
+        if (chunks.length) {
+          let uploaded = 0;
+          let alreadyStored = 0;
+          for (let index = 0; index < chunks.length; index += 1) {
+            const chunk = chunks[index];
+            const chunkText = JSON.stringify(chunk);
+            const chunkBytes = new TextEncoder().encode(chunkText);
+            const chunkHash = await sha256Hex(chunkBytes);
+            const chunkValidation = validatePayload(chunk, chunkBytes.byteLength);
+            const row = captureRow(
+              chunk,
+              chunkValidation,
+              chunkFilename(file.name, index + 1, chunks.length),
+              chunkHash,
+              chunkBytes.byteLength
+            );
+
+            setStatus(uploadStatus, `Uploading map chunk ${index + 1} of ${chunks.length}…`);
+            const { error } = await supabase.from("captures").insert(row);
+            if (error?.code === "23505") {
+              alreadyStored += 1;
+              continue;
+            }
+            if (error) {
+              throw new Error(`Map chunk ${index + 1} of ${chunks.length} failed after ${uploaded} new chunk(s): ${error.message}`);
+            }
+            uploaded += 1;
+          }
+
+          fileInput.value = "";
+          const resumeNote = alreadyStored ? `; ${alreadyStored} previously stored chunk(s) skipped` : "";
+          setStatus(uploadStatus, `Map uploaded in ${chunks.length} chunks: ${payload.points.length.toLocaleString()} points (${uploaded} new${resumeNote}).`, "success");
+          await loadCaptures();
+          return;
+        }
+
+        const row = captureRow(payload, validation, file.name, hash, bytes.byteLength);
         setStatus(uploadStatus, "Uploading…");
         const { error } = await supabase.from("captures").insert(row);
         if (error) {
