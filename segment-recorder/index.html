@@ -871,6 +871,23 @@ updateButtons();
 resizeGeometry();
 }
 
+document.addEventListener('paste', e => {
+  if (e.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+
+  const item = [...(e.clipboardData?.items || [])]
+    .find(item => item.type.startsWith('image/'));
+
+  const image = item?.getAsFile();
+  if (!image) return;
+
+  e.preventDefault();
+
+  const transfer = new DataTransfer();
+  transfer.items.add(image);
+  $('file').files = transfer.files;
+  $('file').dispatchEvent(new Event('change'));
+});
+
 
 supabase.auth.getSession().then(({data})=>setSignedIn(data.session?.user||null));supabase.auth.onAuthStateChange((_event,session)=>setSignedIn(session?.user||null));
 window.onresize=()=>{if(current().image)fitImage()};renderAll();
