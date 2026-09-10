@@ -3,195 +3,303 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Project Adam Constellation Checker v0.2.3</title>
+  <title>Project Adam Capture Uploader v1.1.0</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
     * { box-sizing: border-box; }
-    body { max-width: 1180px; margin: 1.5rem auto; padding: 0 1rem 3rem; line-height: 1.4; }
-    h1, h2 { margin: 0 0 .75rem; }
-    h1 { font-size: 1.65rem; }
-    h2 { font-size: 1.2rem; }
+    body { max-width: 820px; margin: 2rem auto; padding: 0 1rem 3rem; line-height: 1.45; }
     section { border: 1px solid #8886; border-radius: .55rem; padding: 1rem; margin: 1rem 0; }
-    label { display: block; margin: .55rem 0 .2rem; }
-    input, select, textarea, button { font: inherit; padding: .5rem; }
-    input[type="email"], input[type="password"], input[type="text"], select, textarea { width: min(34rem, 100%); }
-    textarea { min-height: 4rem; resize: vertical; }
+    label { display: block; margin: .7rem 0 .25rem; }
+    input, button { font: inherit; padding: .55rem; }
+    input[type="email"], input[type="password"] { width: min(30rem, 100%); }
     button { cursor: pointer; margin: .5rem .35rem 0 0; }
     button:disabled { cursor: not-allowed; opacity: .55; }
-    .grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(300px, 1fr); gap: 1rem; align-items: start; }
-    .row { display: flex; gap: .6rem; align-items: end; flex-wrap: wrap; }
-    .row > label { flex: 1 1 210px; }
+    code { overflow-wrap: anywhere; }
     .muted { opacity: .72; }
     .error { color: #e5484d; }
     .success { color: #30a46c; }
-    .canvas-shell { max-width: 100%; overflow: auto; border: 1px solid #8886; border-radius: .4rem; background: #090b10; min-height: 260px; }
-    canvas { display: block; max-width: none; cursor: crosshair; }
-    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-    th, td { padding: .38rem .45rem; border-bottom: 1px solid #8884; text-align: right; }
-    th:first-child, td:first-child { text-align: left; }
-    pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; font-size: .8rem; }
-    #measurements li { margin: .55rem 0; }
-    .edge-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .35rem; margin-top: .6rem; }
-    .edge-grid button { margin: 0; padding: .38rem .2rem; }
-    .edge-grid button.active { background: #1677a8; color: white; border-color: #58cbff; }
-    .radio-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: .55rem 0; }
-    .radio-row label { display: inline-flex; align-items: center; gap: .3rem; margin: 0; }
-    .tag-entry { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
-    .tag-entry input { flex: 1 1 16rem; }
-    .tag-entry button { margin-top: 0; }
-    .tag-list { display: flex; gap: .4rem; flex-wrap: wrap; min-height: 2.25rem; margin-top: .55rem; }
-    .tag-chip { display: inline-flex; align-items: center; gap: .35rem; border: 1px solid #58cbff88; border-radius: 999px; padding: .25rem .35rem .25rem .65rem; background: #1677a833; }
-    .tag-chip button { border: 0; background: transparent; margin: 0; padding: 0 .2rem; line-height: 1; }
-    .height-grid { display: grid; grid-template-columns: repeat(6, minmax(80px, 1fr)); gap: .4rem; }
-    .height-grid input { width: 100%; }
-    .measurement-load { margin-left: .5rem; padding: .2rem .45rem; }
-    @media (max-width: 820px) {
-      .grid { grid-template-columns: 1fr; }
-      .height-grid { grid-template-columns: repeat(3, minmax(80px, 1fr)); }
-    }
+    .version { opacity: .65; font-size: .8em; font-weight: 500; }
+    progress { width: 100%; margin-top: .8rem; }
   </style>
 </head>
 <body>
-  <h1>Project Adam Constellation Checker <span class="muted">v0.2.3</span></h1>
-  <p class="muted">Six observed points, activation order, visible graph topology, reloadable source images, and optional heights. P6→P1 and generated P7 are not silently added.</p>
+  <h1>Project Adam Capture Uploader <span class="version">v1.1.0</span></h1>
+  <p class="muted">Stores the original sanitized JSON in <code>captures</code>. P7/center derivation payloads are also upserted into their queryable versioned table.</p>
 
   <section id="setup-panel">
     <strong>Configuration missing</strong>
-    <p>If this message remains visible, upload <code>project-adam-config.js</code> beside this page and its checker JavaScript.</p>
+    <p>Upload <code>project-adam-config.js</code> beside this HTML file.</p>
   </section>
 
   <section>
     <h2>1. Sign in</h2>
     <form id="login-form">
-      <div class="row">
-        <label>Email<input id="email" name="email" type="email" autocomplete="username" required></label>
-        <label>Password<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <div>
+        <button type="submit">Sign in</button>
+        <button id="sign-out" type="button" hidden>Sign out</button>
       </div>
-      <button type="submit">Sign in</button>
-      <button id="sign-out" type="button" hidden>Sign out</button>
     </form>
     <p id="auth-status" aria-live="polite">Not signed in.</p>
   </section>
 
   <section>
-    <h2>2. Select character and image</h2>
-    <div class="row">
-      <label>Character
-        <select id="character" disabled><option value="">Sign in to load characters</option></select>
-      </label>
-      <label>Stored image
-        <select id="stored-image" disabled><option value="">Select a character first</option></select>
-      </label>
-      <label>New constellation image<input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
-      <label>Display zoom
-        <select id="zoom">
-          <option value="0.5">50%</option><option value="0.75">75%</option>
-          <option value="1" selected>100%</option><option value="1.5">150%</option><option value="2">200%</option>
-        </select>
-      </label>
-    </div>
-    <div class="row">
-      <label>Image source status
-        <select id="source-status">
-          <option value="released" selected>Released/current</option>
-          <option value="old">Old/revised</option><option value="leaked">Leaked</option><option value="uncertain">Uncertain</option>
-        </select>
-      </label>
-      <label>Crop origin X in source screenshot<input id="origin-x" type="number" step="any" value="0"></label>
-      <label>Crop origin Y in source screenshot<input id="origin-y" type="number" step="any" value="0"></label>
-      <label>Original screenshot width<input id="source-width" type="number" min="1" step="1" placeholder="optional"></label>
-      <label>Original screenshot height<input id="source-height" type="number" min="1" step="1" placeholder="optional"></label>
-    </div>
-    <label>Image/source notes (optional)<textarea id="source-notes" maxlength="4000"></textarea></label>
-    <p class="muted">You can paste an image. New images are stored privately. Local point `(0,0)` is the selected image’s top-left pixel; crop origin places that pixel in an optional larger screenshot frame.</p>
-    <p id="image-status" aria-live="polite">No image loaded.</p>
+    <h2>2. Upload JSON</h2>
+    <form id="upload-form">
+      <label for="capture-file">Sanitized Project Adam JSON</label>
+      <input id="capture-file" type="file" accept="application/json,.json" required disabled>
+      <div><button id="upload-button" type="submit" disabled>Validate and upload</button></div>
+    </form>
+    <progress id="progress" value="0" max="1" hidden></progress>
+    <p id="upload-status" aria-live="polite">Sign in first.</p>
+    <details>
+      <summary>Accepted record collections</summary>
+      <p class="muted">Map data, official character data, constellation observations, concept measurements, Fate/P7 projections, and versioned constellation geometry derivations.</p>
+    </details>
   </section>
 
-  <div class="grid">
-    <section>
-      <h2>3. Click P1 through P6</h2>
-      <div class="canvas-shell"><canvas id="canvas" width="900" height="560"></canvas></div>
-      <button id="undo" type="button" disabled>Undo last point</button>
-      <button id="clear" type="button" disabled>Clear points</button>
-      <p id="point-status" aria-live="polite">Load an image, then click P1.</p>
+  <script type="module">
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+    import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./project-adam-config.js";
 
-      <h2 style="margin-top:1rem">Visible constellation lines</h2>
-      <p class="muted">Toggle every line actually drawn by the constellation. Cyan lines are stored topology; orange is activation order.</p>
-      <button id="copy-activation-edges" type="button" disabled>Start from activation path</button>
-      <button id="clear-edges" type="button" disabled>Clear visible lines</button>
-      <div id="edge-grid" class="edge-grid"></div>
+    const VERSION = "1.1.0";
+    const DERIVATION_FORMAT = "project-adam-constellation-geometry-derivations/v1";
+    const DERIVATION_TABLE = "constellation_geometry_derivations";
+    const configured = /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(SUPABASE_URL)
+      && typeof SUPABASE_PUBLISHABLE_KEY === "string"
+      && !SUPABASE_PUBLISHABLE_KEY.includes("PASTE_");
 
-      <h2 style="margin-top:1rem">Line-fit classification</h2>
-      <div class="radio-row">
-        <label><input type="radio" name="line-fit" value="normal_fit"> Normal fit</label>
-        <label><input type="radio" name="line-fit" value="custom"> Custom lines</label>
-        <label><input type="radio" name="line-fit" value="uncertain" checked> Uncertain</label>
-      </div>
-      <p class="muted">Normal fit records the five activation-path lines. Custom lines starts from that path and lets you toggle any line off or on. Faint gold is only the click-order reference; solid cyan means the line is visibly present.</p>
-      <p id="line-fit-derived" class="muted">Stored classification: Uncertain.</p>
-      <h2 style="margin-top:1rem">Tags</h2>
-      <div class="tag-entry">
-        <input id="tag-input" type="text" maxlength="80" placeholder="bird, fox, nightingale…" aria-label="New tag">
-        <button id="add-tag" type="button">+ Add tag</button>
-      </div>
-      <div id="tag-list" class="tag-list" aria-live="polite"><span class="muted">No tags added.</span></div>
-      <p id="tag-status" class="muted">Add up to 32 tags. Tags are stored in lowercase so exact matches remain consistent.</p>
-    </section>
+    const SUPPORTED_COLLECTIONS = Object.freeze({
+      tiles: "tiles",
+      coordinate_records: "coordinates",
+      marker_definitions: "marker definitions",
+      anchor_candidates: "anchor candidates",
+      calculator_characters: "calculator characters",
+      calculator_skills: "calculator skills",
+      canonical_character_records: "canonical characters",
+      constellation_observations: "constellation observations",
+      concept_measurements: "concept measurements",
+      fate_projections: "Fate/P7 projections",
+      constellation_geometry_derivations: "constellation geometry derivations"
+    });
 
-    <section>
-      <h2>Coordinates</h2>
-      <table>
-        <thead><tr><th>Point</th><th>x px</th><th>y px</th><th>source x</th><th>source y</th></tr></thead>
-        <tbody id="point-rows"><tr><td colspan="5" class="muted">No points</td></tr></tbody>
-      </table>
-      <h2 style="margin-top:1rem">Activation geometry</h2>
-      <table>
-        <thead><tr><th>Edge</th><th>Length</th><th>÷ median</th><th>Next ratio</th></tr></thead>
-        <tbody id="segment-rows"><tr><td colspan="4" class="muted">Need two points</td></tr></tbody>
-      </table>
-      <table style="margin-top:.8rem">
-        <thead><tr><th>Vertex</th><th>Signed turn</th><th>|turn|</th></tr></thead>
-        <tbody id="turn-rows"><tr><td colspan="3" class="muted">Need three points</td></tr></tbody>
-      </table>
-      <p class="muted">Signed turns use a mathematical y-up frame: positive is counterclockwise.</p>
-      <h2 style="margin-top:1rem">Graph topology</h2>
-      <pre id="topology-summary">No visible edges selected.</pre>
-    </section>
-  </div>
+    const DERIVATION_FIELDS = Object.freeze([
+      "measurement_id", "algorithm_version", "payload_version",
+      "source_annotation_version", "source_geometry_version", "source_measurement_updated_at",
+      "fit_scale", "turn_deg_screen", "turn_direction_screen", "fit_rms_px", "fit_rms_over_median",
+      "raw_p7_x_norm", "raw_p7_y_norm", "raw_p7_in_bounds",
+      "phi_p7_x_norm", "phi_p7_y_norm", "phi_p7_in_bounds", "phi_bearing_deg_math",
+      "phi_quadrant_screen", "phi_row", "phi_col",
+      "center_x_norm", "center_y_norm", "center_spread_cells", "center_valid", "center_row", "center_col",
+      "null_rank_of_720", "null_percentile",
+      "transform", "raw_p7", "phi_p7", "great_work_points", "center_details", "null_test"
+    ]);
 
-  <section>
-    <h2>4. Optional heights</h2>
-    <div class="height-grid">
-      <label>P1<input class="height" data-point="1" type="number" step="any" placeholder="unknown"></label>
-      <label>P2<input class="height" data-point="2" type="number" step="any" placeholder="unknown"></label>
-      <label>P3<input class="height" data-point="3" type="number" step="any" placeholder="unknown"></label>
-      <label>P4<input class="height" data-point="4" type="number" step="any" placeholder="unknown"></label>
-      <label>P5<input class="height" data-point="5" type="number" step="any" placeholder="unknown"></label>
-      <label>P6<input class="height" data-point="6" type="number" step="any" placeholder="unknown"></label>
-    </div>
-    <div class="row">
-      <label>Height coordinate system/unit<input id="height-system" type="text" maxlength="200" placeholder="unknown; e.g. map Z"></label>
-      <label>Pixels per height unit<input id="height-scale" type="number" min="0" step="any" placeholder="optional; required for 3D lengths"></label>
-    </div>
-    <p class="muted">Raw values and consecutive differences are retained. No 3D length is calculated without an explicit positive pixel-to-height scale.</p>
-  </section>
+    const setupPanel = document.querySelector("#setup-panel");
+    const loginForm = document.querySelector("#login-form");
+    const signOutButton = document.querySelector("#sign-out");
+    const authStatus = document.querySelector("#auth-status");
+    const uploadForm = document.querySelector("#upload-form");
+    const fileInput = document.querySelector("#capture-file");
+    const uploadButton = document.querySelector("#upload-button");
+    const uploadStatus = document.querySelector("#upload-status");
+    const progress = document.querySelector("#progress");
+    let supabase = null;
 
-  <section>
-    <h2>5. Save observation</h2>
-    <p id="edit-status" class="muted">New measurement. Loading an existing record makes Save overwrite that row.</p>
-    <label>Measurement notes (optional)<textarea id="notes" maxlength="4000"></textarea></label>
-    <button id="save" type="button" disabled>Save measurement</button>
-    <button id="new-measurement" type="button">Start new measurement</button>
-    <p id="save-status" aria-live="polite">Sign in, select a character, load an image, and click six points.</p>
-    <details><summary>Exact JSON preview</summary><pre id="preview">{}</pre></details>
-  </section>
+    function setStatus(element, message, kind = "") {
+      element.textContent = message;
+      element.className = kind;
+    }
 
-  <section>
-    <h2>Recent measurements</h2>
-    <button id="refresh" type="button" disabled>Refresh</button>
-    <ol id="measurements"><li class="muted">Sign in to load measurements.</li></ol>
-  </section>
+    function setSignedIn(user) {
+      const signedIn = Boolean(user);
+      fileInput.disabled = !signedIn;
+      uploadButton.disabled = !signedIn;
+      signOutButton.hidden = !signedIn;
+      loginForm.querySelector('button[type="submit"]').disabled = signedIn;
+      loginForm.email.disabled = signedIn;
+      loginForm.password.disabled = signedIn;
+      setStatus(authStatus, signedIn ? `Signed in as ${user.email}.` : "Not signed in.", signedIn ? "success" : "");
+      if (!signedIn) setStatus(uploadStatus, "Sign in first.");
+    }
 
-  <script type="module" src="./project-adam-constellation-checker-v0.2.3.js"></script>
+    function isObject(value) {
+      return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+    }
+
+    function finiteNumber(value, label, { min = -Infinity, max = Infinity } = {}) {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+        throw new Error(`${label} must be a finite number between ${min} and ${max}.`);
+      }
+    }
+
+    function nullableCell(value, label) {
+      if (value === null) return;
+      if (!Number.isInteger(value) || value < 1 || value > 12) {
+        throw new Error(`${label} must be null or an integer from 1 through 12.`);
+      }
+    }
+
+    function validateDerivation(record, index) {
+      const at = `constellation_geometry_derivations[${index}]`;
+      if (!isObject(record)) throw new Error(`${at} must be an object.`);
+      if (!Number.isInteger(record.measurement_id) || record.measurement_id < 1) throw new Error(`${at}.measurement_id must be a positive integer.`);
+      for (const field of ["algorithm_version", "payload_version", "source_annotation_version", "source_geometry_version", "source_measurement_updated_at"]) {
+        if (typeof record[field] !== "string" || !record[field].trim()) throw new Error(`${at}.${field} must be a nonempty string.`);
+      }
+      finiteNumber(record.fit_scale, `${at}.fit_scale`, { min: 0 });
+      finiteNumber(record.turn_deg_screen, `${at}.turn_deg_screen`, { min: -180, max: 180 });
+      finiteNumber(record.fit_rms_px, `${at}.fit_rms_px`, { min: 0 });
+      finiteNumber(record.fit_rms_over_median, `${at}.fit_rms_over_median`, { min: 0 });
+      if (!["clockwise", "counterclockwise", "zero"].includes(record.turn_direction_screen)) throw new Error(`${at}.turn_direction_screen is invalid.`);
+      for (const field of ["raw_p7_x_norm", "raw_p7_y_norm", "phi_p7_x_norm", "phi_p7_y_norm"]) finiteNumber(record[field], `${at}.${field}`);
+      for (const field of ["raw_p7_in_bounds", "phi_p7_in_bounds", "center_valid"]) if (typeof record[field] !== "boolean") throw new Error(`${at}.${field} must be boolean.`);
+      if (record.phi_bearing_deg_math !== null) finiteNumber(record.phi_bearing_deg_math, `${at}.phi_bearing_deg_math`, { min: 0, max: 359.999999999999 });
+      if (record.phi_quadrant_screen !== null && !["NE", "NW", "SE", "SW"].includes(record.phi_quadrant_screen)) throw new Error(`${at}.phi_quadrant_screen is invalid.`);
+      for (const field of ["phi_row", "phi_col", "center_row", "center_col"]) nullableCell(record[field], `${at}.${field}`);
+      if ((record.center_x_norm === null) !== (record.center_y_norm === null)) throw new Error(`${at} center coordinates must both be null or both be numbers.`);
+      if (record.center_x_norm !== null) {
+        finiteNumber(record.center_x_norm, `${at}.center_x_norm`);
+        finiteNumber(record.center_y_norm, `${at}.center_y_norm`);
+      }
+      if (record.center_spread_cells !== null) finiteNumber(record.center_spread_cells, `${at}.center_spread_cells`, { min: 0 });
+      if (!Number.isInteger(record.null_rank_of_720) || record.null_rank_of_720 < 1 || record.null_rank_of_720 > 720) throw new Error(`${at}.null_rank_of_720 is invalid.`);
+      finiteNumber(record.null_percentile, `${at}.null_percentile`, { min: 0, max: 1 });
+      for (const field of ["transform", "raw_p7", "phi_p7", "great_work_points", "center_details", "null_test"]) {
+        if (!isObject(record[field])) throw new Error(`${at}.${field} must be an object.`);
+      }
+    }
+
+    function validatePayload(payload, byteLength) {
+      if (!isObject(payload)) throw new Error("The JSON root must be an object.");
+      if (typeof payload.format !== "string" || !payload.format.trim()) throw new Error("Missing string field: format.");
+      if (byteLength < 2 || byteLength > 5 * 1024 * 1024) throw new Error("The JSON file must be between 2 bytes and 5 MiB.");
+      const present = [];
+      for (const [field, label] of Object.entries(SUPPORTED_COLLECTIONS)) {
+        if (!(field in payload)) continue;
+        if (!Array.isArray(payload[field])) throw new Error(`Field ${field} must be an array when present.`);
+        present.push({ field, label, count: payload[field].length });
+      }
+      if (!present.length) throw new Error(`No supported collection found. Expected one of: ${Object.keys(SUPPORTED_COLLECTIONS).join(", ")}.`);
+      if (!present.some(item => item.count > 0)) throw new Error("All supported collections are empty.");
+      if (payload.constellation_geometry_derivations) {
+        if (payload.format !== DERIVATION_FORMAT) throw new Error(`Derivation payload format must be ${DERIVATION_FORMAT}.`);
+        payload.constellation_geometry_derivations.forEach(validateDerivation);
+      }
+      return present;
+    }
+
+    async function sha256Hex(bytes) {
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    }
+
+    function databaseDerivation(record) {
+      return Object.fromEntries(DERIVATION_FIELDS.map(field => [field, record[field]]));
+    }
+
+    async function upsertDerivations(records) {
+      const clean = records.map(databaseDerivation);
+      const batchSize = 50;
+      progress.hidden = false;
+      progress.max = clean.length;
+      progress.value = 0;
+      for (let offset = 0; offset < clean.length; offset += batchSize) {
+        const batch = clean.slice(offset, offset + batchSize);
+        const { error } = await supabase.from(DERIVATION_TABLE).upsert(batch, {
+          onConflict: "measurement_id,algorithm_version"
+        });
+        if (error) throw new Error(`Derived-table upsert failed after ${offset} records: ${error.message}`);
+        progress.value = Math.min(offset + batch.length, clean.length);
+      }
+      return clean.length;
+    }
+
+    if (!configured) {
+      setStatus(authStatus, "Add project-adam-config.js beside this page first.", "error");
+      loginForm.querySelector('button[type="submit"]').disabled = true;
+    } else {
+      setupPanel.hidden = true;
+      supabase = createClient(SUPABASE_URL.replace(/\/$/, ""), SUPABASE_PUBLISHABLE_KEY, {
+        auth: { persistSession: true, autoRefreshToken: true }
+      });
+      const { data: { session } } = await supabase.auth.getSession();
+      setSignedIn(session?.user ?? null);
+      supabase.auth.onAuthStateChange((_event, nextSession) => setSignedIn(nextSession?.user ?? null));
+    }
+
+    loginForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      if (!supabase) return;
+      setStatus(authStatus, "Signing in…");
+      const form = new FormData(loginForm);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: String(form.get("email")), password: String(form.get("password"))
+      });
+      loginForm.password.value = "";
+      if (error) {
+        setSignedIn(null);
+        setStatus(authStatus, `Sign-in failed: ${error.message}`, "error");
+        return;
+      }
+      setSignedIn(data.user);
+    });
+
+    signOutButton.addEventListener("click", async () => {
+      const { error } = await supabase.auth.signOut();
+      if (error) setStatus(authStatus, `Sign-out failed: ${error.message}`, "error");
+    });
+
+    uploadForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const file = fileInput.files[0];
+      if (!file || !supabase) return;
+      uploadButton.disabled = true;
+      progress.hidden = true;
+      setStatus(uploadStatus, "Reading and validating…");
+      try {
+        const bytes = await file.arrayBuffer();
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        let payload;
+        try { payload = JSON.parse(text); }
+        catch { throw new Error("The selected file is not valid JSON."); }
+        const collections = validatePayload(payload, bytes.byteLength);
+        const hash = await sha256Hex(bytes);
+
+        setStatus(uploadStatus, "Storing original capture…");
+        const { error: captureError } = await supabase.from("captures").insert({
+          format_version: payload.format,
+          map_id: null,
+          area_id: null,
+          source_filename: file.name.slice(0, 255),
+          payload,
+          payload_sha256: hash,
+          payload_size_bytes: bytes.byteLength
+        });
+        let captureNote = "original capture stored";
+        if (captureError) {
+          if (captureError.code === "23505") captureNote = "original capture already existed";
+          else throw new Error(`Capture storage failed: ${captureError.message}`);
+        }
+
+        let derivationCount = 0;
+        if (payload.constellation_geometry_derivations?.length) {
+          setStatus(uploadStatus, "Upserting versioned derivations…");
+          derivationCount = await upsertDerivations(payload.constellation_geometry_derivations);
+        }
+
+        const summary = collections.filter(item => item.count).map(item => `${item.count} ${item.label}`).join(" · ");
+        fileInput.value = "";
+        setStatus(uploadStatus, `Upload complete (${captureNote}): ${summary}${derivationCount ? `; ${derivationCount} queryable rows upserted` : ""}.`, "success");
+      } catch (error) {
+        setStatus(uploadStatus, `Upload failed: ${error.message}`, "error");
+      } finally {
+        uploadButton.disabled = false;
+      }
+    });
+  </script>
 </body>
 </html>
