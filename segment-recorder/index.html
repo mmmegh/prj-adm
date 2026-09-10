@@ -1,896 +1,1761 @@
 <!doctype html>
+
 <html lang="en">
+
 <head>
+
 <meta charset="utf-8">
+
 <meta name="viewport" content="width=device-width,initial-scale=1">
+
 <title>Constellation Chain Measurement Tool</title>
+
 <style>
+
 :root{--bg:#09131d;--panel:#111f2d;--panel2:#162a3a;--ink:#eef8ff;--muted:#9eb2c1;--cyan:#69e6df;--gold:#ffd66b;--red:#ff7f91;--line:#284052}
+
 *{box-sizing:border-box} body{margin:0;background:linear-gradient(145deg,#07111a,#0b1c27 60%,#102630);color:var(--ink);font:14px/1.4 system-ui,Segoe UI,sans-serif;min-height:100vh}
+
 header{padding:18px 22px;border-bottom:1px solid var(--line);background:#08141dcc;position:sticky;top:0;z-index:5;backdrop-filter:blur(8px)}
+
 h1{font-size:20px;margin:0 0 3px}.sub{color:var(--muted)}
+
 main{display:grid;grid-template-columns:310px minmax(420px,1fr);gap:16px;padding:16px;max-width:1550px;margin:auto}
+
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px #0005}.side{padding:14px;height:max-content;position:static}
+
 label{display:block;color:var(--muted);font-size:12px;margin:0 0 5px}.field{margin-bottom:12px}input,select,button{font:inherit}
+
 input[type=text],input[type=email],input[type=password],select{width:100%;color:var(--ink);background:#091722;border:1px solid #385064;border-radius:7px;padding:8px}
+
 .view-list{display:grid;gap:6px;margin:12px 0}.view-btn{display:flex;justify-content:space-between;align-items:center;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#0c1924;color:var(--ink);cursor:pointer;text-align:left}
+
 .view-btn.active{border-color:var(--cyan);background:#123039}.view-btn.done .status{color:var(--cyan)}.status{color:#708999;font-size:12px}
+
 .hint{padding:10px;background:#0a1822;border-left:3px solid var(--gold);border-radius:6px;color:#c6d7e2;font-size:13px}.hint b{color:var(--gold)}
+
 .optional-stars{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}.optional-stars button{padding:5px 9px}.optional-stars button.armed{border-color:var(--gold);color:var(--gold)}
+
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:12px}button{border:1px solid #3a566b;background:#173145;color:var(--ink);padding:8px 10px;border-radius:7px;cursor:pointer}button:hover{filter:brightness(1.15)}button.primary{background:#176b70;border-color:#52c9c4}button.danger{color:#ffd9df;border-color:#713a46}
+
 .workspace{overflow:hidden}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px;border-bottom:1px solid var(--line)}.toolbar .title{font-weight:700;font-size:16px;margin-right:auto}.filebtn{display:inline-block;border:1px solid #3a566b;background:#173145;padding:8px 10px;border-radius:7px;cursor:pointer}.filebtn input{display:none}
+
 .canvas-wrap{height:min(67vh,760px);min-height:430px;overflow:auto;background:#03080c;display:flex;align-items:flex-start;justify-content:center;position:relative}
+
 canvas{display:block;max-width:none;cursor:crosshair}.empty{position:absolute;inset:0;display:grid;place-items:center;color:#708999;pointer-events:none}.empty.hidden{display:none}
+
+.info-tip{display:inline-grid;place-items:center;width:18px;height:18px;margin-left:4px;padding:0;border-radius:50%;font-size:11px;color:var(--cyan);position:relative;vertical-align:middle}.info-tip .tip{display:none;position:absolute;z-index:20;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);width:min(360px,80vw);padding:9px 10px;border:1px solid #456579;border-radius:7px;background:#06111a;color:var(--ink);font-size:12px;font-weight:400;line-height:1.35;box-shadow:0 8px 24px #0009}.info-tip:hover .tip,.info-tip:focus .tip{display:block}
+
 .readout{padding:14px;border-top:1px solid var(--line)}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #243a4a;font-variant-numeric:tabular-nums}th{color:#9eb2c1;font-weight:600;font-size:12px}.main-tag{color:var(--gold)}.small{font-size:12px;color:var(--muted)}
+
 .summary{margin-top:12px;padding:10px;background:#0b1924;border-radius:8px}.summary strong{color:var(--cyan)}
+
 .auth{padding:10px;background:#0a1822;border:1px solid var(--line);border-radius:8px;margin-bottom:12px}.auth .actions{margin-top:7px}.success{color:var(--cyan)}.error{color:var(--red)}
+
 @media(max-width:800px){main{grid-template-columns:1fr}.side{position:static}.canvas-wrap{height:55vh}}
+
 </style>
+
 </head>
+
 <body>
+
 <header><h1>Constellation chain measurement tool</h1><div class="sub">Click star centers in the requested order. Coordinates are saved in original-image pixels.</div></header>
+
 <main>
-  <aside class="card side">
-    <div class="auth">
-      <div class="field"><label for="email">Project Adam email</label><input id="email" type="email" autocomplete="username"></div>
-      <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password"></div>
-      <div class="actions"><button id="signIn" class="primary">Sign in</button><button id="signOut" hidden>Sign out</button></div>
-      <div class="small" id="authStatus">Not signed in.</div>
-    </div>
-    <div class="field"><label for="character">Character / constellation</label><input id="character" type="text" list="characterNames" placeholder="Venti"><datalist id="characterNames"></datalist></div>
-    <div class="view-list" id="viewList"></div>
-    <div class="hint" id="instruction"></div>
-    <div class="actions">
-      <button id="undo">Undo point</button><button id="clearView" class="danger">Clear view</button>
-      <button id="copy">Copy JSON</button><button id="downloadJson">Download JSON</button>
-      <button id="downloadCsv">Download CSV</button><button id="clearAll" class="danger">Clear all</button>
-      <button id="uploadDb" class="primary" disabled>Upload to database</button><button id="loadDb" disabled>Load saved data</button>
-    </div>
-    <p class="small" id="dbStatus">Sign in to upload or load measurements.</p>
-    <p class="small">Images are not included in exports. Their filenames and original dimensions are.</p>
-  </aside>
-  <section class="card workspace">
-    <div class="toolbar"><span class="title" id="viewTitle"></span><label class="filebtn">Load screenshot<input id="file" type="file" accept="image/*"></label><button id="zoomOut">−</button><button id="zoomReset">Fit</button><button id="zoomIn">+</button><span class="small" id="zoomLabel"></span></div>
-    <div class="canvas-wrap" id="canvasWrap"><canvas id="canvas"></canvas><div class="empty" id="empty">Load the screenshot for this view</div></div>
-    <div class="readout"><div id="readout"></div></div>
-  </section>
+
+  <aside class="card side">
+
+    <div class="auth">
+
+      <div class="field"><label for="email">Project Adam email</label><input id="email" type="email" autocomplete="username"></div>
+
+      <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password"></div>
+
+      <div class="actions"><button id="signIn" class="primary">Sign in</button><button id="signOut" hidden>Sign out</button></div>
+
+      <div class="small" id="authStatus">Not signed in.</div>
+
+    </div>
+
+    <div class="field"><label for="character">Character / constellation</label><input id="character" type="text" list="characterNames" placeholder="Venti"><datalist id="characterNames"></datalist></div>
+
+    <div class="view-list" id="viewList"></div>
+
+    <div class="hint" id="instruction"></div>
+
+    <div class="actions">
+
+      <button id="undo">Undo point</button><button id="clearView" class="danger">Clear view</button>
+
+      <button id="copy">Copy JSON</button><button id="downloadJson">Download JSON</button>
+
+      <button id="downloadCsv">Download CSV</button><button id="clearAll" class="danger">Clear all</button>
+
+      <button id="uploadDb" class="primary" disabled>Upload to database</button><button id="loadDb" disabled>Load saved data</button>
+
+    </div>
+
+    <p class="small" id="dbStatus">Sign in to upload or load measurements.</p>
+
+    <p class="small">Database saves include the source images. JSON/CSV downloads retain image metadata only.</p>
+
+  </aside>
+
+  <section class="card workspace">
+
+    <div class="toolbar"><span class="title" id="viewTitle"></span><label class="filebtn">Load screenshot<input id="file" type="file" accept="image/*"></label><span class="small">or paste an image</span><button id="zoomOut">−</button><button id="zoomReset">Fit</button><button id="zoomIn">+</button><span class="small" id="zoomLabel"></span></div>
+
+    <div class="canvas-wrap" id="canvasWrap"><canvas id="canvas"></canvas><div class="empty" id="empty">Load the screenshot for this view</div></div>
+
+    <div class="readout"><div id="readout"></div></div>
+
+  </section>
+
 </main>
+
 <script type="module">
+
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "../project-adam-config.js";
 
-const TOOL_VERSION='3.0.0';
-const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
-const CAMERA_CALIBRATION={id:'constellation-zoom-camera/v1',verticalFovDeg:32.5,verticalFovUncertaintyDeg:1.0,referenceViewport:{width:1600,height:1200}};
-const supabase=createClient(SUPABASE_URL.replace(/\/$/,''),SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
-let signedInUser=null, characterCatalog=[];
-const views=[
- {id:'flat',title:'Flat top-down',label:'P1>P2>P3>P4>P5>P6',points:['P1','P2','P3','P4','P5','P6'],main:null},
- {id:'p1',title:'P1 selected',label:'P1(main)>P2',points:['P1','P2'],main:'P1'},
- {id:'p2',title:'P2 selected',label:'P1>P2(main)>P3',points:['P1','P2','P3'],main:'P2'},
- {id:'p3',title:'P3 selected',label:'P2>P3(main)>P4',points:['P2','P3','P4'],main:'P3'},
- {id:'p4',title:'P4 selected',label:'P3>P4(main)>P5',points:['P3','P4','P5'],main:'P4'},
- {id:'p5',title:'P5 selected',label:'P4>P5(main)>P6',points:['P4','P5','P6'],main:'P5'},
- {id:'p6',title:'P6 selected',label:'P5>P6(main)',points:['P5','P6'],main:'P6'}
-];
-const state={active:'flat',zoom:1,optionalTarget:null,views:{}}; for(const v of views)state.views[v.id]={points:[],extra:{},history:[],fileName:'',width:0,height:0,image:null};
-const $=id=>document.getElementById(id), canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
-function currentDef(){return views.find(v=>v.id===state.active)} function current(){return state.views[state.active]}
-function dist(a,b){return Math.hypot(b.x-a.x,b.y-a.y)}
-function segmentsFor(v,d){const out=[];for(let i=0;i<d.points.length-1;i++)out.push({from:v.points[i],to:v.points[i+1],length:dist(d.points[i],d.points[i+1])});return out}
-function pointMap(v,d){const m=Object.fromEntries(d.points.map((p,i)=>[v.points[i],p]));return Object.assign(m,d.extra)}
-function allPairs(v,d){const m=pointMap(v,d),names=Object.keys(m).sort((a,b)=>+a.slice(1)-+b.slice(1)),out=[];for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++)out.push({from:names[i],to:names[j],length:dist(m[names[i]],m[names[j]])});return out}
-function baselineLength(a,b){const d=state.views.flat,v=views[0],m=pointMap(v,d);return m[a]&&m[b]?dist(m[a],m[b]):null}
-function renderList(){ $('viewList').innerHTML=views.map(v=>{const d=state.views[v.id],done=d.points.length===v.points.length,total=Object.keys(pointMap(v,d)).length;return `<button class="view-btn ${v.id===state.active?'active':''} ${done?'done':''}" data-id="${v.id}"><span>${v.label.replace('(main)','<span class="main-tag">(main)</span>')}</span><span class="status">${done?total+' stars':d.points.length+'/'+v.points.length}</span></button>`}).join('');document.querySelectorAll('.view-btn').forEach(b=>b.onclick=()=>selectView(b.dataset.id));}
-function selectView(id){state.active=id;state.zoom=1;state.optionalTarget=null;renderAll();fitImage()}
-function renderAll(){const v=currentDef(),d=current(),m=pointMap(v,d);renderList();$('viewTitle').textContent=`${v.title}: ${v.label}`;if(d.points.length<v.points.length){$('instruction').innerHTML=`Click <b>${v.points[d.points.length]}</b>${v.points[d.points.length]===v.main?' (main star)':''}. Required order: <b>${v.label}</b>`}else if(v.id==='flat'){$('instruction').innerHTML=`Complete: <b>${v.label}</b>`}else{const missing=['P1','P2','P3','P4','P5','P6'].filter(n=>!m[n]);$('instruction').innerHTML=`Required chain complete. Add any other stars visible in this window.${missing.length?`<div class="optional-stars">${missing.map(n=>`<button data-star="${n}" class="${state.optionalTarget===n?'armed':''}">${state.optionalTarget===n?'Click '+n+' now':'+ '+n}</button>`).join('')}</div>`:' <b>All six stars recorded.</b>'}`;document.querySelectorAll('[data-star]').forEach(b=>b.onclick=()=>{state.optionalTarget=b.dataset.star;renderAll()})}$('empty').classList.toggle('hidden',!!d.image);draw();renderReadout()}
-function fitImage(){const d=current();if(!d.image)return;state.zoom=Math.min(1,(wrap.clientWidth-4)/d.width,(wrap.clientHeight-4)/d.height);draw()}
-function draw(){const d=current(),v=currentDef();if(!d.image){canvas.width=1;canvas.height=1;$('zoomLabel').textContent='';return}canvas.width=Math.round(d.width*state.zoom);canvas.height=Math.round(d.height*state.zoom);ctx.setTransform(state.zoom,0,0,state.zoom,0,0);ctx.drawImage(d.image,0,0);ctx.lineWidth=2/state.zoom;ctx.font=`${15/state.zoom}px system-ui`;ctx.textAlign='left';ctx.textBaseline='middle';
- if(d.points.length>1){ctx.strokeStyle='#69e6df';ctx.beginPath();d.points.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.stroke()}
- Object.entries(pointMap(v,d)).forEach(([name,p])=>{const isMain=name===v.main;ctx.beginPath();ctx.fillStyle=isMain?'#ffd66b':'#69e6df';ctx.strokeStyle='#07111a';ctx.arc(p.x,p.y,7/state.zoom,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#fff';ctx.strokeStyle='#07111a';ctx.lineWidth=3/state.zoom;ctx.strokeText(name,p.x+11/state.zoom,p.y);ctx.fillText(name,p.x+11/state.zoom,p.y)});$('zoomLabel').textContent=`${Math.round(state.zoom*100)}% · ${d.width}×${d.height}`}
-function renderReadout(){const v=currentDef(),d=current(),segs=segmentsFor(v,d),m=pointMap(v,d);let html='<table><thead><tr><th>Point</th><th>X</th><th>Y</th><th>Role</th></tr></thead><tbody>';['P1','P2','P3','P4','P5','P6'].forEach(name=>{const p=m[name],required=v.points.includes(name);html+=`<tr><td>${name}</td><td>${p?p.x.toFixed(3):'—'}</td><td>${p?p.y.toFixed(3):'—'}</td><td>${name===v.main?'<span class="main-tag">main</span>':required?'chain':p?'extra':''}</td></tr>`});html+='</tbody></table>';
- if(segs.length){html+='<table><thead><tr><th>Segment</th><th>This view</th><th>Flat baseline</th><th>Raw / flat</th></tr></thead><tbody>';for(const s of segs){const base=baselineLength(s.from,s.to);html+=`<tr><td>${s.from}>${s.to}</td><td>${s.length.toFixed(3)} px</td><td>${base?base.toFixed(3)+' px':'—'}</td><td>${base?(s.length/base).toFixed(6):'—'}</td></tr>`}html+='</tbody></table>'}
- if(segs.length===2){const obs=segs[0].length/segs[1].length,b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to),flat=b1&&b2?b1/b2:null;html+=`<div class="summary">Adjacent ratio in this view: <strong>${obs.toFixed(6)}</strong>${flat?` · flat ratio: <strong>${flat.toFixed(6)}</strong> · ratio-of-ratios: <strong>${(obs/flat).toFixed(6)}</strong>`:''} · ${Object.keys(m).length} total stars, ${allPairs(v,d).length} pairwise distances</div>`} $('readout').innerHTML=html}
-canvas.onclick=e=>{const d=current(),v=currentDef();if(!d.image)return;let target;if(d.points.length<v.points.length)target=v.points[d.points.length];else target=state.optionalTarget;if(!target)return;const r=canvas.getBoundingClientRect(),p={x:(e.clientX-r.left)/state.zoom,y:(e.clientY-r.top)/state.zoom};if(d.points.length<v.points.length)d.points.push(p);else{d.extra[target]=p;state.optionalTarget=null}d.history.push(target);renderAll()};
-$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const img=new Image();img.onload=()=>{const d=current(),sameSize=d.width===img.naturalWidth&&d.height===img.naturalHeight,hasCoordinates=d.points.length||Object.keys(d.extra).length;if(hasCoordinates&&!sameSize&&!confirm('This screenshot has different dimensions. Clear the saved coordinates for this view?')){URL.revokeObjectURL(img.src);return}d.image=img;d.fileName=f.name;if(!sameSize&&hasCoordinates){d.points=[];d.extra={};d.history=[]}d.width=img.naturalWidth;d.height=img.naturalHeight;state.optionalTarget=null;fitImage();renderAll()};img.src=URL.createObjectURL(f);e.target.value=''};
-$('undo').onclick=()=>{const d=current(),v=currentDef(),name=d.history.pop();if(!name)return;if(Object.hasOwn(d.extra,name))delete d.extra[name];else d.points.pop();state.optionalTarget=null;renderAll()};$('clearView').onclick=()=>{const d=current();d.points=[];d.extra={};d.history=[];state.optionalTarget=null;renderAll()};
-$('zoomIn').onclick=()=>{state.zoom=Math.min(4,state.zoom*1.25);draw()};$('zoomOut').onclick=()=>{state.zoom=Math.max(.1,state.zoom/1.25);draw()};$('zoomReset').onclick=fitImage;
-function exportData(){const out={schema:MEASUREMENT_SCHEMA,toolVersion:TOOL_VERSION,character:$('character').value.trim(),createdAt:new Date().toISOString(),cameraCalibration:CAMERA_CALIBRATION,views:{}};for(const v of views){const d=state.views[v.id],segs=segmentsFor(v,d),m=pointMap(v,d);const format=s=>{const b=baselineLength(s.from,s.to);return{from:s.from,to:s.to,lengthPx:+s.length.toFixed(6),flatLengthPx:b?+b.toFixed(6):null,rawToFlat:b?+(s.length/b).toFixed(9):null}};out.views[v.id]={title:v.title,sequence:v.label,main:v.main,image:{fileName:d.fileName,width:d.width,height:d.height},points:Object.fromEntries(Object.entries(m).map(([n,p])=>[n,{x:+p.x.toFixed(4),y:+p.y.toFixed(4)}])),segments:segs.map(format),allPairwiseSegments:allPairs(v,d).map(format)};if(segs.length===2){const b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to);out.views[v.id].adjacentRatio={observed:+(segs[0].length/segs[1].length).toFixed(9),flat:b1&&b2?+(b1/b2).toFixed(9):null,ratioOfRatios:b1&&b2?+((segs[0].length/segs[1].length)/(b1/b2)).toFixed(9):null}}}return out}
-function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
-$('downloadJson').onclick=()=>download(`${$('character').value.trim()||'constellation'}_chain_measurements.json`,JSON.stringify(exportData(),null,2),'application/json');
-$('copy').onclick=async()=>{await navigator.clipboard.writeText(JSON.stringify(exportData(),null,2));const b=$('copy'),old=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=old,1000)};
-$('downloadCsv').onclick=()=>{const o=exportData(),rows=[['character','view','sequence','main','image','width','height','from','to','from_x','from_y','to_x','to_y','length_px','flat_length_px','raw_to_flat','is_chain_segment']];for(const [id,v] of Object.entries(o.views)){for(const s of v.allPairwiseSegments){const a=v.points[s.from],b=v.points[s.to],chain=v.segments.some(x=>x.from===s.from&&x.to===s.to);rows.push([o.character,id,v.sequence,v.main||'',v.image.fileName,v.image.width,v.image.height,s.from,s.to,a?.x??'',a?.y??'',b?.x??'',b?.y??'',s.lengthPx,s.flatLengthPx??'',s.rawToFlat??'',chain])}}download(`${o.character||'constellation'}_multistar_measurements.csv`,rows.map(r=>r.map(x=>`"${String(x).replaceAll('"','""')}"`).join(',')).join('\n'),'text/csv')};
-$('clearAll').onclick=()=>{if(!confirm('Clear every loaded view and measurement?'))return;for(const v of views)state.views[v.id]={points:[],extra:{},history:[],fileName:'',width:0,height:0,image:null};state.optionalTarget=null;renderAll()};
-function setStatus(id,message,kind=''){const el=$(id);el.textContent=message;el.className=`small ${kind}`}
-function setSignedIn(user){signedInUser=user;const yes=Boolean(user);$('signIn').hidden=yes;$('signOut').hidden=!yes;$('email').disabled=yes;$('password').disabled=yes;$('uploadDb').disabled=!yes;$('loadDb').disabled=!yes;setStatus('authStatus',yes?`Signed in as ${user.email}.`:'Not signed in.',yes?'success':'');setStatus('dbStatus',yes?'Ready to upload or load measurements.':'Sign in to upload or load measurements.');if(yes)loadCharacters();else{characterCatalog=[];$('characterNames').replaceChildren()}}
-async function loadCharacters(){const {data,error}=await supabase.from('characters').select('avatar_id,name').order('name');if(error){setStatus('dbStatus',`Could not load characters: ${error.message}`,'error');return}characterCatalog=data||[];$('characterNames').innerHTML=characterCatalog.map(c=>`<option value="${String(c.name).replaceAll('&','&amp;').replaceAll('"','&quot;')}"></option>`).join('')}
-function selectedCharacter(){const name=$('character').value.trim().toLocaleLowerCase();const matches=characterCatalog.filter(c=>c.name.trim().toLocaleLowerCase()===name);if(matches.length!==1)throw new Error(matches.length?'Character name is ambiguous.':'Choose an exact character name from the list.');return matches[0]}
-function validateComplete(payload){if(!payload.character)throw new Error('Enter the character name.');for(const v of views){const got=Object.keys(payload.views[v.id]?.points||{});for(const required of v.points)if(!got.includes(required))throw new Error(`${v.title} is missing ${required}.`);const image=payload.views[v.id]?.image;if(!image?.width||!image?.height)throw new Error(`${v.title} is missing its screenshot dimensions.`)}}
-async function sha256(value){const bytes=new TextEncoder().encode(JSON.stringify(value));return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('')}
-function importData(payload){if(!payload||typeof payload!=='object'||!payload.views)throw new Error('The saved payload is invalid.');$('character').value=payload.character||'';for(const v of views){const src=payload.views[v.id]||{},d=state.views[v.id],points=src.points||{};d.image=null;d.fileName=src.image?.fileName||'';d.width=Number(src.image?.width)||0;d.height=Number(src.image?.height)||0;d.points=v.points.filter(n=>points[n]).map(n=>({x:Number(points[n].x),y:Number(points[n].y)}));d.extra=Object.fromEntries(Object.entries(points).filter(([n])=>!v.points.includes(n)).map(([n,p])=>[n,{x:Number(p.x),y:Number(p.y)}]));d.history=[...v.points.slice(0,d.points.length),...Object.keys(d.extra)]}state.active='flat';state.zoom=1;state.optionalTarget=null;renderAll();setStatus('dbStatus','Saved coordinates loaded. Reload each screenshot to display or edit its points.','success')}
-$('signIn').onclick=async()=>{setStatus('authStatus','Signing in…');const {data,error}=await supabase.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});$('password').value='';if(error){setSignedIn(null);setStatus('authStatus',`Sign-in failed: ${error.message}`,'error');return}setSignedIn(data.user)};
-$('signOut').onclick=async()=>{const {error}=await supabase.auth.signOut();if(error)setStatus('authStatus',`Sign-out failed: ${error.message}`,'error')};
-$('uploadDb').onclick=async()=>{if(!signedInUser)return;try{const character=selectedCharacter(),payload=exportData();validateComplete(payload);const measurementSha=await sha256(payload);$('uploadDb').disabled=true;setStatus('dbStatus','Uploading measurement…');const row={owner_id:signedInUser.id,character_id:character.avatar_id,measurement_schema:MEASUREMENT_SCHEMA,tool_version:TOOL_VERSION,camera_calibration:CAMERA_CALIBRATION,payload,measurement_sha256:measurementSha};const {data,error}=await supabase.from('constellation_chain_measurements').upsert(row,{onConflict:'owner_id,character_id'}).select('id,updated_at').single();if(error)throw new Error(error.message);setStatus('dbStatus',`Measurement ${data.id} saved at ${new Date(data.updated_at).toLocaleString()}.`,'success')}catch(error){setStatus('dbStatus',`Upload failed: ${error.message}`,'error')}finally{$('uploadDb').disabled=!signedInUser}};
-$('loadDb').onclick=async()=>{if(!signedInUser)return;try{const character=selectedCharacter();$('loadDb').disabled=true;setStatus('dbStatus','Loading saved measurement…');const {data,error}=await supabase.from('constellation_chain_measurements').select('payload,updated_at').eq('character_id',character.avatar_id).eq('owner_id',signedInUser.id).maybeSingle();if(error)throw new Error(error.message);if(!data)throw new Error('No segment measurement is saved for this character.');importData(data.payload)}catch(error){setStatus('dbStatus',`Load failed: ${error.message}`,'error')}finally{$('loadDb').disabled=!signedInUser}};
+const TOOL_VERSION='4.2.0';
 
-/* Constellation reconstruction extension v4.0.0 */
+const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
+
+const CAMERA_CALIBRATION={id:'constellation-zoom-camera/v1',verticalFovDeg:32.5,verticalFovUncertaintyDeg:1.0,referenceViewport:{width:1600,height:1200}};
+
+const IMAGE_BUCKET='constellation-measurement-images';
+
+const supabase=createClient(SUPABASE_URL.replace(/\/$/,''),SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+
+let signedInUser=null, characterCatalog=[];
+
+const views=[
+
+ {id:'flat',title:'Flat top-down',label:'P1>P2>P3>P4>P5>P6',points:['P1','P2','P3','P4','P5','P6'],main:null},
+
+ {id:'p1',title:'P1 selected',label:'P1(main)>P2',points:['P1','P2'],main:'P1'},
+
+ {id:'p2',title:'P2 selected',label:'P1>P2(main)>P3',points:['P1','P2','P3'],main:'P2'},
+
+ {id:'p3',title:'P3 selected',label:'P2>P3(main)>P4',points:['P2','P3','P4'],main:'P3'},
+
+ {id:'p4',title:'P4 selected',label:'P3>P4(main)>P5',points:['P3','P4','P5'],main:'P4'},
+
+ {id:'p5',title:'P5 selected',label:'P4>P5(main)>P6',points:['P4','P5','P6'],main:'P5'},
+
+ {id:'p6',title:'P6 selected',label:'P5>P6(main)',points:['P5','P6'],main:'P6'}
+
+];
+
+function emptyView(){return {points:[],extra:{},unavailable:[],history:[],fileName:'',width:0,height:0,image:null,imageBlob:null,imageUrl:null,storagePath:null,mimeType:null}}
+
+const state={active:'flat',zoom:1,optionalTarget:null,cursor:null,views:{}}; for(const v of views)state.views[v.id]=emptyView();
+
+const $=id=>document.getElementById(id), canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
+
+function currentDef(){return views.find(v=>v.id===state.active)} function current(){return state.views[state.active]}
+
+function dist(a,b){return Math.hypot(b.x-a.x,b.y-a.y)}
+
+function segmentsFor(v,d){const m=pointMap(v,d),out=[];for(let i=0;i<v.points.length-1;i++)if(m[v.points[i]]&&m[v.points[i+1]])out.push({from:v.points[i],to:v.points[i+1],length:dist(m[v.points[i]],m[v.points[i+1]])});return out}
+
+function pointMap(v,d){const m={};v.points.forEach((n,i)=>{if(d.points[i])m[n]=d.points[i]});return Object.assign(m,d.extra)}
+
+function nextRequired(v,d){const m=pointMap(v,d);return v.points.find(n=>!m[n]&&!d.unavailable.includes(n))||null}
+
+function allPairs(v,d){const m=pointMap(v,d),names=Object.keys(m).sort((a,b)=>+a.slice(1)-+b.slice(1)),out=[];for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++)out.push({from:names[i],to:names[j],length:dist(m[names[i]],m[names[j]])});return out}
+
+function baselineLength(a,b){const d=state.views.flat,v=views[0],m=pointMap(v,d);return m[a]&&m[b]?dist(m[a],m[b]):null}
+
+function renderList(){ $('viewList').innerHTML=views.map(v=>{const d=state.views[v.id],m=pointMap(v,d),resolved=v.points.filter(n=>m[n]||d.unavailable.includes(n)).length,done=resolved===v.points.length,total=Object.keys(m).length;return `<button class="view-btn ${v.id===state.active?'active':''} ${done?'done':''}" data-id="${v.id}"><span>${v.label.replace('(main)','<span class="main-tag">(main)</span>')}</span><span class="status">${done?total+' stars':resolved+'/'+v.points.length}</span></button>`}).join('');document.querySelectorAll('.view-btn').forEach(b=>b.onclick=()=>selectView(b.dataset.id));}
+
+function selectView(id){state.active=id;state.zoom=1;state.optionalTarget=null;renderAll();fitImage()}
+
+function renderAll(){const v=currentDef(),d=current(),m=pointMap(v,d),next=nextRequired(v,d);renderList();$('viewTitle').textContent=`${v.title}: ${v.label}`;if(next){$('instruction').innerHTML=`Click <b>${next}</b>${next===v.main?' (main star)':''}. Required order: <b>${v.label}</b> <button id="markUnavailable">Not visible</button>`;$('markUnavailable').onclick=()=>{d.unavailable.push(next);d.history.push({name:next,type:'unavailable'});renderAll()}}else if(v.id==='flat'){$('instruction').innerHTML=`Available overview points recorded: <b>${Object.keys(m).join(' > ')||'none'}</b>`}else{const missing=['P1','P2','P3','P4','P5','P6'].filter(n=>!m[n]);$('instruction').innerHTML=`Required sequence resolved. Add any other star visible in this window.${missing.length?`<div class="optional-stars">${missing.map(n=>`<button data-star="${n}" class="${state.optionalTarget===n?'armed':''}">${state.optionalTarget===n?'Click '+n+' now':'+ '+n}</button>`).join('')}</div>`:' <b>All six stars recorded.</b>'}`;document.querySelectorAll('[data-star]').forEach(b=>b.onclick=()=>{state.optionalTarget=b.dataset.star;renderAll()})}$('empty').classList.toggle('hidden',!!d.image);draw();renderReadout()}
+
+function fitImage(){const d=current();if(!d.image)return;state.zoom=Math.min(1,(wrap.clientWidth-4)/d.width,(wrap.clientHeight-4)/d.height);draw()}
+
+function draw(){const d=current(),v=currentDef();if(!d.image){canvas.width=1;canvas.height=1;$('zoomLabel').textContent='';return}canvas.width=Math.round(d.width*state.zoom);canvas.height=Math.round(d.height*state.zoom);ctx.setTransform(state.zoom,0,0,state.zoom,0,0);ctx.drawImage(d.image,0,0);ctx.lineWidth=2/state.zoom;ctx.font=`${15/state.zoom}px system-ui`;ctx.textAlign='left';ctx.textBaseline='middle';
+
+ const chain=segmentsFor(v,d);if(chain.length){const m=pointMap(v,d);ctx.strokeStyle='#69e6df';for(const s of chain){ctx.beginPath();ctx.moveTo(m[s.from].x,m[s.from].y);ctx.lineTo(m[s.to].x,m[s.to].y);ctx.stroke()}}
+
+ Object.entries(pointMap(v,d)).forEach(([name,p])=>{const isMain=name===v.main;ctx.beginPath();ctx.fillStyle=isMain?'#ffd66b':'#69e6df';ctx.strokeStyle='#07111a';ctx.arc(p.x,p.y,7/state.zoom,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#fff';ctx.strokeStyle='#07111a';ctx.lineWidth=3/state.zoom;ctx.strokeText(name,p.x+11/state.zoom,p.y);ctx.fillText(name,p.x+11/state.zoom,p.y)});
+ if(state.cursor){const p=state.cursor,s=11/state.zoom;ctx.save();ctx.lineWidth=1/state.zoom;ctx.strokeStyle='rgba(190,245,255,.23)';ctx.beginPath();ctx.moveTo(0,p.y);ctx.lineTo(d.width,p.y);ctx.moveTo(p.x,0);ctx.lineTo(p.x,d.height);ctx.stroke();ctx.lineWidth=1.5/state.zoom;ctx.strokeStyle='rgba(220,255,255,.78)';ctx.beginPath();ctx.moveTo(p.x-s,p.y);ctx.lineTo(p.x+s,p.y);ctx.moveTo(p.x,p.y-s);ctx.lineTo(p.x,p.y+s);ctx.stroke();ctx.restore()}
+ $('zoomLabel').textContent=`${Math.round(state.zoom*100)}% · ${d.width}×${d.height}`}
+
+function renderReadout(){const v=currentDef(),d=current(),segs=segmentsFor(v,d),m=pointMap(v,d);let html='<table><thead><tr><th>Point</th><th>X</th><th>Y</th><th>Role</th></tr></thead><tbody>';['P1','P2','P3','P4','P5','P6'].forEach(name=>{const p=m[name],required=v.points.includes(name);html+=`<tr><td>${name}</td><td>${p?p.x.toFixed(3):'—'}</td><td>${p?p.y.toFixed(3):'—'}</td><td>${name===v.main?'<span class="main-tag">main</span>':required?'chain':p?'extra':''}</td></tr>`});html+='</tbody></table>';
+
+ if(segs.length){html+='<table><thead><tr><th>Segment</th><th>This view</th><th>Flat baseline</th><th>Raw / flat</th></tr></thead><tbody>';for(const s of segs){const base=baselineLength(s.from,s.to);html+=`<tr><td>${s.from}>${s.to}</td><td>${s.length.toFixed(3)} px</td><td>${base?base.toFixed(3)+' px':'—'}</td><td>${base?(s.length/base).toFixed(6):'—'}</td></tr>`}html+='</tbody></table>'}
+
+ if(segs.length===2){const obs=segs[0].length/segs[1].length,b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to),flat=b1&&b2?b1/b2:null;html+=`<div class="summary">Adjacent ratio in this view: <strong>${obs.toFixed(6)}</strong>${flat?` · flat ratio: <strong>${flat.toFixed(6)}</strong> · ratio-of-ratios: <strong>${(obs/flat).toFixed(6)}</strong>`:''} · ${Object.keys(m).length} total stars, ${allPairs(v,d).length} pairwise distances</div>`} $('readout').innerHTML=html}
+
+canvas.onmousemove=e=>{if(!current().image)return;const r=canvas.getBoundingClientRect();state.cursor={x:(e.clientX-r.left)/state.zoom,y:(e.clientY-r.top)/state.zoom};draw()};
+canvas.onmouseleave=()=>{state.cursor=null;draw()};
+
+canvas.onclick=e=>{const d=current(),v=currentDef();if(!d.image)return;const required=nextRequired(v,d),target=required||state.optionalTarget;if(!target)return;const r=canvas.getBoundingClientRect(),p={x:(e.clientX-r.left)/state.zoom,y:(e.clientY-r.top)/state.zoom};if(required)d.points[v.points.indexOf(target)]=p;else{d.extra[target]=p;state.optionalTarget=null}d.unavailable=d.unavailable.filter(n=>n!==target);d.history.push({name:target,type:'point'});renderAll()};
+
+async function setViewImage(blob,fileName,viewId=state.active,storagePath=null){
+ const img=new Image(),url=URL.createObjectURL(blob);
+ await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('The pasted or selected image could not be decoded.'));img.src=url});
+ const v=views.find(x=>x.id===viewId),d=state.views[viewId],sameSize=d.width===img.naturalWidth&&d.height===img.naturalHeight,hasCoordinates=Object.keys(pointMap(v,d)).length;
+ if(hasCoordinates&&!sameSize&&!confirm('This screenshot has different dimensions. Clear the saved coordinates for this view?')){URL.revokeObjectURL(url);return false}
+ if(d.imageUrl)URL.revokeObjectURL(d.imageUrl);
+ d.image=img;d.imageBlob=blob;d.imageUrl=url;d.fileName=fileName||`pasted-${viewId}.png`;d.mimeType=blob.type||'image/png';d.storagePath=storagePath;
+ if(!sameSize&&hasCoordinates){d.points=[];d.extra={};d.unavailable=[];d.history=[]}
+ d.width=img.naturalWidth;d.height=img.naturalHeight;state.optionalTarget=null;state.cursor=null;if(viewId===state.active)fitImage();renderAll();return true;
+}
+
+$('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{await setViewImage(f,f.name)}catch(error){setStatus('dbStatus',error.message,'error')}finally{e.target.value=''}};
+
+$('undo').onclick=()=>{const d=current(),v=currentDef(),entry=d.history.pop();if(!entry)return;const name=typeof entry==='string'?entry:entry.name,type=typeof entry==='string'?'point':entry.type;if(type==='unavailable')d.unavailable=d.unavailable.filter(n=>n!==name);else if(Object.hasOwn(d.extra,name))delete d.extra[name];else d.points[v.points.indexOf(name)]=null;state.optionalTarget=null;renderAll()};$('clearView').onclick=()=>{const d=current();d.points=[];d.extra={};d.unavailable=[];d.history=[];state.optionalTarget=null;renderAll()};
+
+$('zoomIn').onclick=()=>{state.zoom=Math.min(4,state.zoom*1.25);draw()};$('zoomOut').onclick=()=>{state.zoom=Math.max(.1,state.zoom/1.25);draw()};$('zoomReset').onclick=fitImage;
+
+function exportData(){const out={schema:MEASUREMENT_SCHEMA,toolVersion:TOOL_VERSION,character:$('character').value.trim(),createdAt:new Date().toISOString(),cameraCalibration:CAMERA_CALIBRATION,views:{}};for(const v of views){const d=state.views[v.id],segs=segmentsFor(v,d),m=pointMap(v,d);const format=s=>{const b=baselineLength(s.from,s.to);return{from:s.from,to:s.to,lengthPx:+s.length.toFixed(6),flatLengthPx:b?+b.toFixed(6):null,rawToFlat:b?+(s.length/b).toFixed(9):null}};out.views[v.id]={title:v.title,sequence:v.label,main:v.main,unavailablePoints:[...d.unavailable],image:{fileName:d.fileName,width:d.width,height:d.height,storagePath:d.storagePath,mimeType:d.mimeType,sizeBytes:d.imageBlob?.size||null},points:Object.fromEntries(Object.entries(m).map(([n,p])=>[n,{x:+p.x.toFixed(4),y:+p.y.toFixed(4)}])),segments:segs.map(format),allPairwiseSegments:allPairs(v,d).map(format)};if(segs.length===2){const b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to);out.views[v.id].adjacentRatio={observed:+(segs[0].length/segs[1].length).toFixed(9),flat:b1&&b2?+(b1/b2).toFixed(9):null,ratioOfRatios:b1&&b2?+((segs[0].length/segs[1].length)/(b1/b2)).toFixed(9):null}}}return out}
+
+function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+
+$('downloadJson').onclick=()=>download(`${$('character').value.trim()||'constellation'}_chain_measurements.json`,JSON.stringify(exportData(),null,2),'application/json');
+
+$('copy').onclick=async()=>{await navigator.clipboard.writeText(JSON.stringify(exportData(),null,2));const b=$('copy'),old=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=old,1000)};
+
+$('downloadCsv').onclick=()=>{const o=exportData(),rows=[['character','view','sequence','main','image','width','height','from','to','from_x','from_y','to_x','to_y','length_px','flat_length_px','raw_to_flat','is_chain_segment']];for(const [id,v] of Object.entries(o.views)){for(const s of v.allPairwiseSegments){const a=v.points[s.from],b=v.points[s.to],chain=v.segments.some(x=>x.from===s.from&&x.to===s.to);rows.push([o.character,id,v.sequence,v.main||'',v.image.fileName,v.image.width,v.image.height,s.from,s.to,a?.x??'',a?.y??'',b?.x??'',b?.y??'',s.lengthPx,s.flatLengthPx??'',s.rawToFlat??'',chain])}}download(`${o.character||'constellation'}_multistar_measurements.csv`,rows.map(r=>r.map(x=>`"${String(x).replaceAll('"','""')}"`).join(',')).join('\n'),'text/csv')};
+
+$('clearAll').onclick=()=>{if(!confirm('Clear every loaded view, image and measurement?'))return;for(const v of views){if(state.views[v.id].imageUrl)URL.revokeObjectURL(state.views[v.id].imageUrl);state.views[v.id]=emptyView()}state.optionalTarget=null;state.cursor=null;renderAll()};
+
+function setStatus(id,message,kind=''){const el=$(id);el.textContent=message;el.className=`small ${kind}`}
+
+function setSignedIn(user){signedInUser=user;const yes=Boolean(user);if(!yes){lastAutoCharacterId=null;loadGeneration++}$('signIn').hidden=yes;$('signOut').hidden=!yes;$('email').disabled=yes;$('password').disabled=yes;$('uploadDb').disabled=!yes;$('loadDb').disabled=!yes;setStatus('authStatus',yes?`Signed in as ${user.email}.`:'Not signed in.',yes?'success':'');setStatus('dbStatus',yes?'Ready to upload or load measurements.':'Sign in to upload or load measurements.');if(yes)loadCharacters();else{characterCatalog=[];$('characterNames').replaceChildren()}}
+
+async function loadCharacters(){const {data,error}=await supabase.from('characters').select('avatar_id,name').order('name');if(error){setStatus('dbStatus',`Could not load characters: ${error.message}`,'error');return}characterCatalog=data||[];$('characterNames').innerHTML=characterCatalog.map(c=>`<option value="${String(c.name).replaceAll('&','&amp;').replaceAll('"','&quot;')}"></option>`).join('');scheduleAutoLoad()}
+
+function selectedCharacter(){const name=$('character').value.trim().toLocaleLowerCase();const matches=characterCatalog.filter(c=>c.name.trim().toLocaleLowerCase()===name);if(matches.length!==1)throw new Error(matches.length?'Character name is ambiguous.':'Choose an exact character name from the list.');return matches[0]}
+
+function validateUpload(payload){if(!payload.character)throw new Error('Enter the character name.');let count=0;for(const v of views){const got=Object.keys(payload.views[v.id]?.points||{});count+=got.length;const image=payload.views[v.id]?.image;if(got.length&&(!image?.width||!image?.height))throw new Error(`${v.title} has points but no screenshot dimensions.`)}if(!count)throw new Error('Record at least one point before uploading.')}
+
+async function sha256(value){const bytes=new TextEncoder().encode(JSON.stringify(value));return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('')}
+
+function importData(payload){if(!payload||typeof payload!=='object'||!payload.views)throw new Error('The saved payload is invalid.');$('character').value=payload.character||'';for(const v of views){const src=payload.views[v.id]||{},old=state.views[v.id],d=emptyView(),points=src.points||{};if(old.imageUrl)URL.revokeObjectURL(old.imageUrl);d.fileName=src.image?.fileName||'';d.width=Number(src.image?.width)||0;d.height=Number(src.image?.height)||0;d.storagePath=src.image?.storagePath||null;d.mimeType=src.image?.mimeType||null;d.unavailable=Array.isArray(src.unavailablePoints)?src.unavailablePoints.filter(n=>v.points.includes(n)):[];d.points=v.points.map(n=>points[n]?{x:Number(points[n].x),y:Number(points[n].y)}:null);d.extra=Object.fromEntries(Object.entries(points).filter(([n])=>!v.points.includes(n)).map(([n,p])=>[n,{x:Number(p.x),y:Number(p.y)}]));d.history=[...v.points.filter(n=>points[n]).map(name=>({name,type:'point'})),...d.unavailable.map(name=>({name,type:'unavailable'})),...Object.keys(d.extra).map(name=>({name,type:'point'}))];state.views[v.id]=d}state.active='flat';state.zoom=1;state.optionalTarget=null;state.cursor=null;renderAll()}
+
+async function uploadImages(character,payload){
+ for(const v of views){const d=state.views[v.id];if(!d.imageBlob||d.storagePath)continue;setStatus('dbStatus',`Uploading ${v.title} image…`);const path=`${signedInUser.id}/${character.avatar_id}/${v.id}`;const {error}=await supabase.storage.from(IMAGE_BUCKET).upload(path,d.imageBlob,{upsert:true,contentType:d.mimeType||d.imageBlob.type||'application/octet-stream'});if(error)throw Error(`Image upload failed for ${v.title}: ${error.message}. Run schema v2.5 if the image bucket is not installed.`);d.storagePath=path;payload.views[v.id].image.storagePath=path}
+}
+
+async function restoreImages(payload,generation){
+ const jobs=views.map(async v=>{const meta=payload.views?.[v.id]?.image,path=meta?.storagePath;if(!path)return false;const {data,error}=await supabase.storage.from(IMAGE_BUCKET).download(path);if(generation!==loadGeneration)return false;if(error)throw Error(`${v.title}: ${error.message}`);await setViewImage(data,meta.fileName||`${v.id}.png`,v.id,path);return true});
+ const settled=await Promise.allSettled(jobs),failed=settled.filter(x=>x.status==='rejected');if(failed.length)throw Error(`Measurements loaded, but ${failed.length} image(s) could not be restored. ${failed[0].reason.message}`);return settled.filter(x=>x.status==='fulfilled'&&x.value).length
+}
+
+$('signIn').onclick=async()=>{setStatus('authStatus','Signing in…');const {data,error}=await supabase.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});$('password').value='';if(error){setSignedIn(null);setStatus('authStatus',`Sign-in failed: ${error.message}`,'error');return}setSignedIn(data.user)};
+
+$('signOut').onclick=async()=>{const {error}=await supabase.auth.signOut();if(error)setStatus('authStatus',`Sign-out failed: ${error.message}`,'error')};
+
+$('uploadDb').onclick=async()=>{if(!signedInUser)return;try{const character=selectedCharacter(),payload=exportData();validateUpload(payload);$('uploadDb').disabled=true;await uploadImages(character,payload);const measurementSha=await sha256(payload);setStatus('dbStatus','Uploading measurement…');const row={owner_id:signedInUser.id,character_id:character.avatar_id,measurement_schema:MEASUREMENT_SCHEMA,tool_version:TOOL_VERSION,camera_calibration:payload.cameraCalibration,payload,measurement_sha256:measurementSha};const {data,error}=await supabase.from('constellation_chain_measurements').upsert(row,{onConflict:'owner_id,character_id'}).select('id,updated_at').single();if(error)throw new Error(error.message);setStatus('dbStatus',`Measurement and images saved at ${new Date(data.updated_at).toLocaleString()}.`,'success')}catch(error){setStatus('dbStatus',`Upload failed: ${error.message}`,'error')}finally{$('uploadDb').disabled=!signedInUser}};
+
+let loadGeneration=0,autoLoadTimer=null,lastAutoCharacterId=null;
+
+async function loadSelectedCharacter({automatic=false}={}){if(!signedInUser)return;const generation=++loadGeneration;try{const character=selectedCharacter();lastAutoCharacterId=character.avatar_id;$('loadDb').disabled=true;setStatus('dbStatus','Loading saved measurement and images…');const {data,error}=await supabase.from('constellation_chain_measurements').select('payload,updated_at').eq('character_id',character.avatar_id).eq('owner_id',signedInUser.id).maybeSingle();if(generation!==loadGeneration)return;if(error)throw new Error(error.message);if(!data){if(automatic){const name=$('character').value;for(const v of views){if(state.views[v.id].imageUrl)URL.revokeObjectURL(state.views[v.id].imageUrl);state.views[v.id]=emptyView()}$('character').value=name;renderAll();setStatus('dbStatus','No saved measurement for this character; ready for a new capture.');return}throw new Error('No segment measurement is saved for this character.')}importData(data.payload);const restored=await restoreImages(data.payload,generation);if(generation===loadGeneration)setStatus('dbStatus',restored?`Loaded measurements and ${restored} source image${restored===1?'':'s'} saved ${new Date(data.updated_at).toLocaleString()}.`:`Loaded measurements saved ${new Date(data.updated_at).toLocaleString()}. This legacy record has no stored source images.`,'success')}catch(error){if(generation===loadGeneration)setStatus('dbStatus',`Load failed: ${error.message}`,'error')}finally{if(generation===loadGeneration)$('loadDb').disabled=!signedInUser}}
+
+function scheduleAutoLoad(){clearTimeout(autoLoadTimer);autoLoadTimer=setTimeout(()=>{if(!signedInUser)return;let c;try{c=selectedCharacter()}catch{return}if(String(c.avatar_id)===String(lastAutoCharacterId))return;loadSelectedCharacter({automatic:true})},250)}
+
+$('character').addEventListener('input',scheduleAutoLoad);
+$('character').addEventListener('change',scheduleAutoLoad);
+$('loadDb').onclick=()=>loadSelectedCharacter();
+
+/* Constellation reconstruction extension v4.2.0 */
+
 {
+
 const NAMES=['P1','P2','P3','P4','P5','P6'];
+
 const EDGES=[[0,1],[1,2],[2,3],[3,4],[4,5]];
-const MODEL_VERSION='reciprocal-fixed-offset/v1';
+
+const MODEL_VERSION='available-observation-fixed-offset/v2';
+
 const originalExport=exportData;
+
 const originalImport=importData;
+
 const originalRender=renderAll;
 
-let model=null,modelKey='',overlay=null,searchResults=[];
+let model=null,modelKey='',overlay=null,overlaySelection='',overlayGeneration=0,searchResults=[];
+
 let searchGeneration=0;
+
 const camera={yaw:0,pitch:0,distance:3,target:[0,0,0],selected:null};
+
 const add=(a,b)=>a.map((x,i)=>x+b[i]);
+
 const sub=(a,b)=>a.map((x,i)=>x-b[i]);
+
 const mul=(a,s)=>a.map(x=>x*s);
+
 const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0);
+
 const norm=a=>Math.hypot(...a);
+
 const cross=(a,b)=>[
- a[1]*b[2]-a[2]*b[1],
- a[2]*b[0]-a[0]*b[2],
- a[0]*b[1]-a[1]*b[0]
+
+ a[1]*b[2]-a[2]*b[1],
+
+ a[2]*b[0]-a[0]*b[2],
+
+ a[0]*b[1]-a[1]*b[0]
+
 ];
+
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({
- '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+
+ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+
 }[c]));
+
 const nextFrame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
 
 const style=document.createElement('style');
+
 style.textContent=`
+
 #geometryPanel{grid-column:1/-1;padding:14px}
+
 #geometryPanel h2{margin:0 0 8px;font-size:19px}
+
 .geo-row{display:flex;align-items:end;gap:9px;flex-wrap:wrap;margin:10px 0}
+
 .geo-row label{margin:0}
+
 .geo-row input,.geo-row select{
- display:block;margin-top:4px;padding:7px;border-radius:6px;
- border:1px solid #385064;background:#091722;color:#eef8ff;
- width:110px
+
+ display:block;margin-top:4px;padding:7px;border-radius:6px;
+
+ border:1px solid #385064;background:#091722;color:#eef8ff;
+
+ width:110px
+
 }
+
 .geo-row select{width:auto}
+
 .geo-stage{position:relative;background:#03080c;border:1px solid #284052;
- border-radius:9px;overflow:hidden;margin:10px 0}
+
+ border-radius:9px;overflow:hidden;margin:10px 0}
+
 #geoCanvas{width:100%;height:500px;touch-action:none;cursor:grab}
+
 #geoCanvas:active{cursor:grabbing}
+
 .geo-table{overflow:auto;margin-top:10px}
+
 #geometryPanel button:disabled{opacity:.4;cursor:default}
+
 #geometryPanel details{margin:12px 0}
+
 #geometryPanel summary{cursor:pointer;color:#ffd66b}
+
 #geometryPanel .geo-note{color:#9eb2c1;font-size:12px}
+
 @media(max-width:800px){#geoCanvas{height:380px}}
+
 `;
+
 document.head.append(style);
 
 const panel=document.createElement('section');
+
 panel.id='geometryPanel';
+
 panel.className='card';
+
 panel.innerHTML=`
+
 <h2>3D constellation</h2>
+
 <div class="geo-row">
- <label>Viewport preset
-  <select id="geoPreset">
-   <option value="1600,1200">1600 × 1200</option>
-   <option value="1920,1200">1920 × 1200</option>
-   <option value="1920,1080">1920 × 1080</option>
-   <option value="2560,1440">2560 × 1440</option>
-   <option value="custom">Custom</option>
-  </select>
- </label>
- <label>Game viewport width<input id="geoWidth" type="number" min="1" value="1600"></label>
- <label>Game viewport height<input id="geoHeight" type="number" min="1" value="1200"></label>
- <label>Vertical FOV °<input id="geoFov" type="number" min="1" max="160" step=".1" value="32.5"></label>
+
+ <label>Viewport preset
+
+  <select id="geoPreset">
+
+   <option value="1600,1200">1600 × 1200</option>
+
+   <option value="1920,1200">1920 × 1200</option>
+
+   <option value="1920,1080">1920 × 1080</option>
+
+   <option value="2560,1440">2560 × 1440</option>
+
+   <option value="custom">Custom</option>
+
+  </select>
+
+ </label>
+
+ <label>Game viewport width<input id="geoWidth" type="number" min="1" value="1600"></label>
+
+ <label>Game viewport height<input id="geoHeight" type="number" min="1" value="1200"></label>
+
+ <label>Vertical FOV ° <button class="info-tip" type="button" aria-label="How the FOV was measured">?<span class="tip">We tracked identifiable stars across the rotating background at 1600 × 1200 and 1920 × 1200, then fit their curved screen paths to a spherical camera-flow model. Both resolutions agreed on a 32.5° vertical FOV (about ±1°); the corresponding horizontal FOVs were about 42.6° and 50.1°.</span></button><input id="geoFov" type="number" min="1" max="160" step=".1" value="32.5"></label>
+
 </div>
+
 <div class="geo-note">
- Use the original game viewport dimensions, before cropping.
- This version assumes one viewport size for all seven views and no image rescaling.
+
+ Use the original game viewport dimensions, before cropping.
+
+ This version assumes one viewport size for all seven views and no image rescaling.
+
 </div>
+
 <div class="geo-row">
- <button id="geoCalculate" class="primary">Calculate 3D</button>
- <button id="geoTop" disabled>Top view</button>
- <button id="geoFit" disabled>Fit / recenter</button>
- <button id="geoOverview" disabled>Overview measurements</button>
- <button id="geoRemoveOverlay" disabled>Clear comparison</button>
+
+ <button id="geoCalculate" class="primary">Calculate 3D</button>
+
+ <button id="geoTop" disabled>Top view</button>
+
+ <button id="geoFit" disabled>Fit / recenter</button>
+
+ <button id="geoOverview" disabled>Overview measurements</button>
+
+ <button id="geoRemoveOverlay" disabled>Clear comparison</button>
+
 </div>
+
 <div class="geo-row" id="geoStarButtons">
- ${NAMES.map((n,i)=>`<button data-geo-star="${i}" disabled>${n} view</button>`).join('')}
+
+ ${NAMES.map((n,i)=>`<button data-geo-star="${i}" disabled>${n} view</button>`).join('')}
+
 </div>
-<div id="geoStatus" class="small">Complete all seven measurement views to calculate.</div>
+
+<div id="geoStatus" class="small">Record every point that is visible. Calculation will use the available observation graph.</div>
+
 <div class="geo-stage"><canvas id="geoCanvas"></canvas></div>
+
 <div id="geoMetrics" class="geo-table"></div>
+
 <div id="geoReprojection" class="geo-table"></div>
+
 <details>
- <summary>Camera assumptions and interpretation</summary>
- <p class="geo-note">
- The calculation assumes parallel selected-star camera axes, the same focal
- length and the same camera-to-selected-star offset for P1–P6, with the
- selected star on the optical axis. Cropping acts as an image translation.
- The default 32.5° FOV is the prior working estimate, not a new calibration.
- </p>
- <p class="geo-note">
- Adjacent reciprocal measurements construct the model. Their residuals
- measure internal consistency. Extra recorded stars are withheld from
- construction and provide a stronger test. A small residual alone does not
- prove that the assumed camera rig is the game's actual rig.
- </p>
- <p class="geo-note">
- Top view restores the overview axis orientation and fits the model.
- Overview measurements displays the original 2D points; it is not a fitted
- reconstruction of the game's overview camera.
- </p>
+
+ <summary>Camera assumptions and interpretation</summary>
+
+ <p class="geo-note">
+
+ The calculation assumes parallel selected-star camera axes, the same focal
+
+ length and the same camera-to-selected-star offset for P1–P6, with the
+
+ selected star on the optical axis. Cropping acts as an image translation.
+
+ The default 32.5° vertical FOV (±1°) came from fitting identifiable rotating
+ background-star paths at two viewport widths to a spherical camera-flow model.
+
+ </p>
+
+ <p class="geo-note">
+
+ The solver prefers adjacent reciprocal observations, then adds other visible
+
+ stars only when they increase the independent rank. Unused observations are
+
+ held out for reprojection validation. It refuses to invent missing depth when
+
+ the available graph is underdetermined.
+
+ </p>
+
+ <p class="geo-note">
+
+ Top view restores the overview axis orientation and fits the model.
+
+ Overview measurements displays the original 2D points; it is not a fitted
+
+ reconstruction of the game's overview camera.
+
+ </p>
+
 </details>
+
 <div class="geo-row">
- <button id="geoSearch" disabled>Search database for 3D matches</button>
- <label>Rank by
-  <select id="geoRank">
-   <option value="direct">Same P order</option>
-   <option value="reverse">Reversed order</option>
-   <option value="any">Any permutation — exploratory</option>
-   <option value="mirror">Mirrored — exploratory</option>
-  </select>
- </label>
+
+ <button id="geoSearch" disabled>Search database for 3D matches</button>
+
+ <label>Rank by
+
+  <select id="geoRank">
+
+   <option value="direct">Same P order</option>
+
+   <option value="reverse">Reversed order</option>
+
+   <option value="any">Any permutation — exploratory</option>
+
+   <option value="mirror">Mirrored — exploratory</option>
+
+  </select>
+
+ </label>
+
 </div>
+
 <div id="geoSearchStatus" class="small"></div>
+
 <div id="geoMatches" class="geo-table"></div>
+
 <div class="geo-row">
- <label>Approx. total size, mm<input id="geoSize" type="number" min="10" value="100"></label>
- <label>Ball diameter, mm<input id="geoBall" type="number" min=".5" step=".5" value="6"></label>
- <label>Bar diameter, mm<input id="geoBar" type="number" min=".5" step=".5" value="3"></label>
- <label>Mesh detail
-  <select id="geoDetail">
-   <option value="48">Standard</option>
-   <option value="72">Fine</option>
-   <option value="96">Extra fine</option>
-  </select>
- </label>
- <button id="geoStl" disabled>Download STL</button>
+
+ <label>Approx. total size, mm<input id="geoSize" type="number" min="10" value="100"></label>
+
+ <label>Ball diameter, mm<input id="geoBall" type="number" min=".5" step=".5" value="6"></label>
+
+ <label>Bar diameter, mm<input id="geoBar" type="number" min=".5" step=".5" value="3"></label>
+
+ <label>Mesh detail
+
+  <select id="geoDetail">
+
+   <option value="48">Standard</option>
+
+   <option value="72">Fine</option>
+
+   <option value="96">Extra fine</option>
+
+  </select>
+
+ </label>
+
+ <button id="geoStl" disabled>Download STL</button>
+
 </div>
+
 <div class="geo-note">
- STL exports the P1–P6 activation chain as a merged ball-and-bar surface,
- in conventional millimetre coordinates. It excludes comparison overlays.
- Preview the mesh in your slicer before printing.
+
+ STL exports the P1–P6 activation chain as a merged ball-and-bar surface,
+
+ in conventional millimetre coordinates. It excludes comparison overlays.
+
+ Preview the mesh in your slicer before printing.
+
 </div>
+
 `;
+
 document.querySelector('main').append(panel);
 
 const gc=$('geoCanvas'),gx=gc.getContext('2d');
+
 let screenStars=[],pointer=null,cssWidth=1,cssHeight=1;
+
 let overviewMode=false;
 
 function options(){
- const width=Number($('geoWidth').value);
- const height=Number($('geoHeight').value);
- const fov=Number($('geoFov').value);
- if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1)
-  throw Error('Enter positive integer viewport dimensions.');
- if(!Number.isFinite(fov)||fov<=0||fov>=160)
-  throw Error('Vertical FOV must be between 0° and 160°.');
- return {width,height,fov};
+
+ const width=Number($('geoWidth').value);
+
+ const height=Number($('geoHeight').value);
+
+ const fov=Number($('geoFov').value);
+
+ if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1)
+
+  throw Error('Enter positive integer viewport dimensions.');
+
+ if(!Number.isFinite(fov)||fov<=0||fov>=160)
+
+  throw Error('Vertical FOV must be between 0° and 160°.');
+
+ return {width,height,fov};
+
 }
+
 function focal(o){return o.height/2/Math.tan(o.fov*Math.PI/360)}
+
 function point(payload,view,name){
- const p=payload.views?.[view]?.points?.[name];
- if(!p||!Number.isFinite(p.x)||!Number.isFinite(p.y))
-  throw Error(`${view.toUpperCase()} is missing a valid ${name} coordinate.`);
- return p;
+
+ const p=payload.views?.[view]?.points?.[name];
+
+ if(!p||!Number.isFinite(p.x)||!Number.isFinite(p.y))
+
+  throw Error(`${view.toUpperCase()} is missing a valid ${name} coordinate.`);
+
+ return p;
+
 }
+
 function screenVector(a,b){return [b.x-a.x,-(b.y-a.y)]}
+
 function fingerprint(){
+
  const p=originalExport();
+
  return JSON.stringify({
-  character:p.character,views:p.views,
-  viewport:[$('geoWidth').value,$('geoHeight').value,$('geoFov').value]
- });
+
+  character:p.character,views:Object.fromEntries(Object.entries(p.views).map(([id,v])=>[id,{points:v.points,width:v.image?.width,height:v.image?.height}])),
+
+  viewport:[$('geoWidth').value,$('geoHeight').value,$('geoFov').value]
+
+ });
+
 }
+
 function settingsFor(payload){
- const v=payload.originalViewport;
- const c=payload.cameraCalibration;
- if(!v?.width||!v?.height)return null;
- const o={width:Number(v.width),height:Number(v.height),fov:Number(c?.verticalFovDeg)};
- if(!Number.isInteger(o.width)||!Number.isInteger(o.height)||
-    o.width<1||o.height<1||!(o.fov>0&&o.fov<160))return null;
- return o;
+
+ const v=payload.originalViewport;
+
+ const c=payload.cameraCalibration;
+
+ if(!v?.width||!v?.height)return null;
+
+ const o={width:Number(v.width),height:Number(v.height),fov:Number(c?.verticalFovDeg)};
+
+ if(!Number.isInteger(o.width)||!Number.isInteger(o.height)||
+
+    o.width<1||o.height<1||!(o.fov>0&&o.fov<160))return null;
+
+ return o;
+
+}
+
+function matrixRank(input,tol=1e-9){
+ const a=input.map(r=>r.slice()),m=a.length,n=a[0]?.length||0;let rank=0;
+ for(let c=0;c<n&&rank<m;c++){let pivot=rank;for(let r=rank+1;r<m;r++)if(Math.abs(a[r][c])>Math.abs(a[pivot][c]))pivot=r;if(Math.abs(a[pivot][c])<tol)continue;[a[rank],a[pivot]]=[a[pivot],a[rank]];const q=a[rank][c];for(let j=c;j<n;j++)a[rank][j]/=q;for(let r=0;r<m;r++)if(r!==rank){const k=a[r][c];if(Math.abs(k)>tol)for(let j=c;j<n;j++)a[r][j]-=k*a[rank][j]}rank++}
+ return rank;
+}
+
+function leastSquares(rows,values){
+ const n=15,A=Array.from({length:n},()=>Array(n).fill(0)),b=Array(n).fill(0);
+ rows.forEach((r,k)=>{for(let i=0;i<n;i++){b[i]+=r[i]*values[k];for(let j=0;j<n;j++)A[i][j]+=r[i]*r[j]}});
+ for(let c=0;c<n;c++){let pivot=c;for(let r=c+1;r<n;r++)if(Math.abs(A[r][c])>Math.abs(A[pivot][c]))pivot=r;if(Math.abs(A[pivot][c])<1e-11)throw Error('The available observations are numerically underdetermined.');[A[c],A[pivot]]=[A[pivot],A[c]];[b[c],b[pivot]]=[b[pivot],b[c]];const q=A[c][c];for(let j=c;j<n;j++)A[c][j]/=q;b[c]/=q;for(let r=0;r<n;r++)if(r!==c){const k=A[r][c];for(let j=c;j<n;j++)A[r][j]-=k*A[c][j];b[r]-=k*b[c]}}
+ return b;
+}
+
+function observationRows(i,j,u,v){
+ const x=Array(15).fill(0),y=Array(15).fill(0),put=(row,p,c,value)=>{if(p>0)row[(p-1)*3+c]+=value};
+ put(x,j,0,1);put(x,i,0,-1);put(x,j,2,u);put(x,i,2,-u);
+ put(y,j,1,1);put(y,i,1,-1);put(y,j,2,v);put(y,i,2,-v);
+ return [x,y];
+}
+
+function availableObservations(payload,f){
+ const out=[];
+ for(let i=0;i<6;i++){const id=`p${i+1}`,src=payload.views?.[id],anchor=src?.points?.[NAMES[i]];if(!anchor)continue;for(let j=0;j<6;j++){const measured=src.points?.[NAMES[j]];if(i===j||!measured)continue;const u=(measured.x-anchor.x)/f,v=-(measured.y-anchor.y)/f;if(!Number.isFinite(u)||!Number.isFinite(v))continue;out.push({i,j,id,anchor,measured,u,v,rows:observationRows(i,j,u,v)})}}
+ return out;
 }
 
 function reconstruct(payload,o){
- const f=focal(o),points=[[0,0,0]],reciprocal=[];
- for(const v of views){
-  for(const n of v.points)point(payload,v.id,n);
- }
- for(let i=0;i<5;i++){
-  const av=`p${i+1}`,bv=`p${i+2}`;
-  const a=screenVector(point(payload,av,NAMES[i]),point(payload,av,NAMES[i+1]));
-  const b=screenVector(point(payload,bv,NAMES[i+1]),point(payload,bv,NAMES[i]));
-  const A=norm(a),B=norm(b);
-  if(A<.01||B<.01)throw Error(`${NAMES[i]}–${NAMES[i+1]} has coincident points.`);
-  const z=(A-B)/(A+B);
-  const xy=a.map((x,k)=>(x*(1-z)-b[k]*(1+z))/(2*f));
-  const delta=[...xy,z];
-  points.push(add(points[i],delta));
-  reciprocal.push({
-   from:NAMES[i],to:NAMES[i+1],
-   directionDisagreementDeg:Math.acos(clamp(-dot(a,b)/(A*B),-1,1))*180/Math.PI
-  });
- }
- const lengths=EDGES.map(([i,j])=>norm(sub(points[j],points[i])));
- const angles=points.slice(1,5).map((p,k)=>{
-  const i=k+1,a=sub(points[i-1],p),b=sub(points[i+1],p);
-  return Math.acos(clamp(dot(a,b)/(norm(a)*norm(b)),-1,1))*180/Math.PI;
- });
- const checks=[];
- for(let i=0;i<6;i++){
-  const id=`p${i+1}`,src=payload.views[id],anchor=point(payload,id,NAMES[i]);
-  for(let j=0;j<6;j++){
-   if(i===j||!src.points[NAMES[j]])continue;
-   const m=point(payload,id,NAMES[j]),d=sub(points[j],points[i]),depth=1-d[2];
-   const predicted=depth>0?{x:anchor.x+f*d[0]/depth,y:anchor.y-f*d[1]/depth}:null;
-   checks.push({
-    view:id,star:NAMES[j],main:NAMES[i],
-    kind:Math.abs(i-j)===1?'construction':'held-out',
-    measured:{x:m.x,y:m.y},predicted,
-    errorPx:predicted?Math.hypot(predicted.x-m.x,predicted.y-m.y):null,
-    behindCamera:depth<=0
-   });
-  }
- }
- return {
-  algorithm:MODEL_VERSION,points,edges:EDGES,
-  lengths,ratios:lengths.map(x=>x/lengths[0]),anglesDeg:angles,
-  reciprocal,reprojection:checks,
-  camera:{...o,focalLengthPx:f,selectedOffset:1},
-  assumptions:{
-   parallelAxes:true,equalSelectedOffsets:true,
-   selectedStarOnOpticalAxis:true,unscaledCrops:true
-  }
- };
+ const f=focal(o),observations=availableObservations(payload,f);
+ const pairs=new Set(observations.map(x=>`${x.i},${x.j}`));
+ observations.forEach(x=>x.priority=Math.abs(x.i-x.j)===1&&pairs.has(`${x.j},${x.i}`)?0:Math.abs(x.i-x.j)===1?1:2);
+ observations.sort((a,b)=>a.priority-b.priority||a.i-b.i||a.j-b.j);
+ let constructionRows=[],construction=[],rank=0;
+ for(const obs of observations){const candidate=constructionRows.concat(obs.rows),nextRank=matrixRank(candidate);if(nextRank>rank){construction.push(obs);constructionRows=candidate;rank=nextRank}if(rank===15)break}
+ if(rank<15){const usableViews=new Set(observations.map(x=>x.id)).size;throw Error(`Available points give rank ${rank}/15 from ${observations.length} sighting(s) in ${usableViews} selected-star view(s). More overlapping stars are needed; no missing depths were guessed.`)}
+ const values=construction.flatMap(x=>[x.u,x.v]),solution=leastSquares(constructionRows,values),points=[[0,0,0]];
+ for(let i=1;i<6;i++)points.push(solution.slice((i-1)*3,(i-1)*3+3));
+ const used=new Set(construction.map(x=>`${x.i},${x.j}`)),reciprocal=[];
+ for(let i=0;i<5;i++){const a=observations.find(x=>x.i===i&&x.j===i+1),b=observations.find(x=>x.i===i+1&&x.j===i);let disagreement=null;if(a&&b){const av=[a.u,a.v],bv=[b.u,b.v],A=norm(av),B=norm(bv);if(A>.000001&&B>.000001)disagreement=Math.acos(clamp(-dot(av,bv)/(A*B),-1,1))*180/Math.PI}reciprocal.push({from:NAMES[i],to:NAMES[i+1],directionDisagreementDeg:disagreement})}
+
+ const lengths=EDGES.map(([i,j])=>norm(sub(points[j],points[i])));
+
+ const angles=points.slice(1,5).map((p,k)=>{
+
+  const i=k+1,a=sub(points[i-1],p),b=sub(points[i+1],p);
+
+  return Math.acos(clamp(dot(a,b)/(norm(a)*norm(b)),-1,1))*180/Math.PI;
+
+ });
+
+ const checks=observations.map(obs=>{const d=sub(points[obs.j],points[obs.i]),depth=1-d[2],predicted=depth>0?{x:obs.anchor.x+f*d[0]/depth,y:obs.anchor.y-f*d[1]/depth}:null;return {view:obs.id,star:NAMES[obs.j],main:NAMES[obs.i],kind:used.has(`${obs.i},${obs.j}`)?'construction':'held-out',measured:{x:obs.measured.x,y:obs.measured.y},predicted,errorPx:predicted?Math.hypot(predicted.x-obs.measured.x,predicted.y-obs.measured.y):null,behindCamera:depth<=0}});
+ const constraintStatus=NAMES.map((name,i)=>{if(i===0)return {star:name,status:'gauge anchor',sightings:observations.filter(x=>x.j===i).length};const sightings=observations.filter(x=>x.j===i).length,direct=EDGES.some(([a,b])=>(a===i||b===i)&&pairs.has(`${a},${b}`)&&pairs.has(`${b},${a}`));return {star:name,status:direct?'direct reciprocal':'indirectly solved',sightings}});
+
+ return {
+
+  algorithm:MODEL_VERSION,points,edges:EDGES,
+
+  lengths,ratios:lengths.map(x=>x/lengths[0]),anglesDeg:angles,
+
+  reciprocal,reprojection:checks,constraintStatus,
+
+  rank,availableObservationCount:observations.length,constructionObservationCount:construction.length,
+
+  camera:{...o,focalLengthPx:f,selectedOffset:1},
+
+  assumptions:{
+
+   parallelAxes:true,equalSelectedOffsets:true,
+
+   selectedStarOnOpticalAxis:true,unscaledCrops:true
+
+  }
+
+ };
+
 }
+
 function rms(rows){
- const a=rows.filter(r=>Number.isFinite(r.errorPx));
- return a.length?Math.sqrt(a.reduce((s,r)=>s+r.errorPx*r.errorPx,0)/a.length):null;
+
+ const a=rows.filter(r=>Number.isFinite(r.errorPx));
+
+ return a.length?Math.sqrt(a.reduce((s,r)=>s+r.errorPx*r.errorPx,0)/a.length):null;
+
 }
+
 function fmt(x,d=3){return Number.isFinite(x)?x.toFixed(d):'—'}
+
 function currentValid(){return model&&modelKey===fingerprint()}
+
 function invalidate(){
- if(model&&modelKey!==fingerprint()){
-  model=null;overlay=null;searchResults=[];searchGeneration++;
-  $('geoMetrics').replaceChildren();
-  $('geoReprojection').replaceChildren();
-  $('geoMatches').replaceChildren();
-  setStatus('geoStatus','Measurements or camera settings changed. Calculate again.');
- }
- updateButtons();paint();
+
+ if(model&&modelKey!==fingerprint()){
+
+  model=null;overlay=null;overlaySelection='';overlayGeneration++;searchResults=[];searchGeneration++;
+
+  $('geoMetrics').replaceChildren();
+
+  $('geoReprojection').replaceChildren();
+
+  $('geoMatches').replaceChildren();
+
+  setStatus('geoStatus','Measurements or camera settings changed. Calculate again.');
+
+ }
+
+ updateButtons();paint();
+
 }
+
 function updateButtons(){
- let complete=true;
- try{const p=originalExport();validateComplete(p);options()}catch{complete=false}
- $('geoCalculate').disabled=!complete;
- const has=Boolean(currentValid());
- for(const id of ['geoTop','geoFit','geoOverview','geoStl'])$(id).disabled=!has;
- document.querySelectorAll('[data-geo-star]').forEach(b=>b.disabled=!has);
- $('geoSearch').disabled=!has||!signedInUser;
- $('geoRemoveOverlay').disabled=!overlay;
+
+ let canAttempt=false,payload=null;
+
+ try{payload=originalExport();const o=options();canAttempt=availableObservations(payload,focal(o)).length>0}catch{}
+
+ $('geoCalculate').disabled=!canAttempt;
+
+ const has=Boolean(currentValid());
+
+ for(const id of ['geoTop','geoFit','geoStl'])$(id).disabled=!has;
+
+ $('geoOverview').disabled=!has||!NAMES.every(n=>payload?.views?.flat?.points?.[n]);
+
+ document.querySelectorAll('[data-geo-star]').forEach(b=>{const i=Number(b.dataset.geoStar);b.disabled=!has||!payload?.views?.[`p${i+1}`]?.points?.[NAMES[i]]});
+
+ $('geoSearch').disabled=!has||!signedInUser;
+
+ $('geoRemoveOverlay').disabled=!overlay;
+
 }
 
 function summarize(){
- const fit=model.reprojection.filter(r=>r.kind==='construction');
- const held=model.reprojection.filter(r=>r.kind==='held-out');
- const bad=model.reprojection.filter(r=>r.behindCamera).length;
- $('geoMetrics').innerHTML=`
- <table><thead><tr><th>Segment</th><th>3D length*</th><th>Ratio</th>
- <th>Reciprocal direction error</th></tr></thead><tbody>
- ${model.lengths.map((l,i)=>`<tr>
- <td>${NAMES[i]}–${NAMES[i+1]}</td><td>${fmt(l,6)}</td>
- <td>${fmt(model.ratios[i],6)}</td>
- <td>${fmt(model.reciprocal[i].directionDisagreementDeg)}°</td></tr>`).join('')}
- </tbody></table>
- <table><thead><tr><th>Vertex</th><th>Interior 3D angle</th><th>Relative depth</th></tr></thead>
- <tbody>${NAMES.map((n,i)=>`<tr><td>${n}</td>
- <td>${i>0&&i<5?fmt(model.anglesDeg[i-1])+'°':'—'}</td>
- <td>${fmt(model.points[i][2],6)}</td></tr>`).join('')}</tbody></table>
- <p class="geo-note">*Lengths use camera-to-selected-star distance = 1.
- Positive depth points toward the selected-view camera.</p>
+
+ const fit=model.reprojection.filter(r=>r.kind==='construction');
+
+ const held=model.reprojection.filter(r=>r.kind==='held-out');
+
+ const bad=model.reprojection.filter(r=>r.behindCamera).length;
+
+ $('geoMetrics').innerHTML=`
+
+ <table><thead><tr><th>Segment</th><th>3D length*</th><th>Ratio</th>
+
+ <th>Reciprocal direction error</th></tr></thead><tbody>
+
+ ${model.lengths.map((l,i)=>`<tr>
+
+ <td>${NAMES[i]}–${NAMES[i+1]}</td><td>${fmt(l,6)}</td>
+
+ <td>${fmt(model.ratios[i],6)}</td>
+
+ <td>${fmt(model.reciprocal[i].directionDisagreementDeg)}°</td></tr>`).join('')}
+
+ </tbody></table>
+
+ <table><thead><tr><th>Vertex</th><th>Interior 3D angle</th><th>Relative depth</th></tr></thead>
+
+ <tbody>${NAMES.map((n,i)=>`<tr><td>${n}</td>
+
+ <td>${i>0&&i<5?fmt(model.anglesDeg[i-1])+'°':'—'}</td>
+
+ <td>${fmt(model.points[i][2],6)}</td></tr>`).join('')}</tbody></table>
+
+ <p class="geo-note">*Lengths use camera-to-selected-star distance = 1.
+
+ Positive depth points toward the selected-view camera.</p>
+
  <p>Construction RMS: ${fmt(rms(fit))} px.
- Held-out extra-star RMS: ${fmt(rms(held))} px (${held.length} observations).
+
+ Held-out observation RMS: ${fmt(rms(held))} px (${held.length} observations).
+
  ${bad?`${bad} observation(s) fall behind the assumed camera.`:''}</p>`;
- const directionBad=model.reciprocal.some(r=>r.directionDisagreementDeg>3);
- setStatus('geoStatus',
-  `Calculated with ${model.camera.fov}° vertical FOV. `+
-  (bad||directionBad?'Inspect the residuals: the camera model or measurements may be inconsistent.':
-   'Select P1–P6 to inspect measured and predicted points.'),
-  bad||directionBad?'error':'success');
+
+ $('geoMetrics').insertAdjacentHTML('beforeend',`<p class="geo-note">Independent rank: ${model.rank}/15. ${model.constructionObservationCount} of ${model.availableObservationCount} sightings used for construction; ${held.length} held out.</p><table><thead><tr><th>Point</th><th>Constraint</th><th>Seen from other centers</th></tr></thead><tbody>${model.constraintStatus.map(x=>`<tr><td>${x.star}</td><td>${x.status}</td><td>${x.sightings}</td></tr>`).join('')}</tbody></table>`);
+
+ const directionBad=model.reciprocal.some(r=>Number.isFinite(r.directionDisagreementDeg)&&r.directionDisagreementDeg>3);
+
+ setStatus('geoStatus',
+
+  `Calculated with ${model.camera.fov}° vertical FOV. `+
+
+  (bad||directionBad?'Inspect the residuals: the camera model or measurements may be inconsistent.':
+
+   'Select P1–P6 to inspect measured and predicted points.'),
+
+  bad||directionBad?'error':'success');
+
 }
 
 function centerAndRadius(){
- const c=model.points.reduce((s,p)=>add(s,p),[0,0,0]).map(x=>x/6);
- return {c,r:Math.max(...model.points.map(p=>norm(sub(p,c))),.01)};
+
+ const c=model.points.reduce((s,p)=>add(s,p),[0,0,0]).map(x=>x/6);
+
+ return {c,r:Math.max(...model.points.map(p=>norm(sub(p,c))),.01)};
+
 }
+
 function fitView(reset=false){
- if(!model)return;
- overviewMode=false;camera.selected=null;
- if(reset){camera.yaw=0;camera.pitch=0}
- const {c,r}=centerAndRadius();
- camera.target=c;
- const aspect=Math.max(.1,cssWidth/cssHeight);
- const half=Math.atan(Math.tan(model.camera.fov*Math.PI/360)*Math.min(1,aspect));
- camera.distance=r/Math.sin(half)*1.12;
- $('geoReprojection').replaceChildren();paint();
+
+ if(!model)return;
+
+ overviewMode=false;camera.selected=null;
+
+ if(reset){camera.yaw=0;camera.pitch=0}
+
+ const {c,r}=centerAndRadius();
+
+ camera.target=c;
+
+ const aspect=Math.max(.1,cssWidth/cssHeight);
+
+ const half=Math.atan(Math.tan(model.camera.fov*Math.PI/360)*Math.min(1,aspect));
+
+ camera.distance=r/Math.sin(half)*1.12;
+
+ $('geoReprojection').replaceChildren();paint();
+
 }
+
 function selectedView(i){
- if(!currentValid())return;
- overviewMode=false;camera.selected=i;camera.yaw=0;camera.pitch=0;
- camera.target=model.points[i];camera.distance=1;
- const rows=model.reprojection.filter(r=>r.view===`p${i+1}`);
- $('geoReprojection').innerHTML=`
- <p>Cyan = measured; gold = predicted. Lines connect each pair.
- Coordinates refer to the recorded crop.</p>
- <table><thead><tr><th>Star</th><th>Use</th><th>Measured x, y</th>
- <th>Predicted x, y</th><th>Error</th></tr></thead><tbody>
- ${rows.map(r=>`<tr><td>${r.star}</td><td>${r.kind}</td>
- <td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td>
- <td>${r.predicted?fmt(r.predicted.x,1)+', '+fmt(r.predicted.y,1):'Behind camera'}</td>
- <td>${fmt(r.errorPx)} px</td></tr>`).join('')}</tbody></table>`;
- paint();
+
+ if(!currentValid())return;
+
+ overviewMode=false;camera.selected=i;camera.yaw=0;camera.pitch=0;
+
+ camera.target=model.points[i];camera.distance=1;
+
+ const rows=model.reprojection.filter(r=>r.view===`p${i+1}`);
+
+ $('geoReprojection').innerHTML=`
+
+ <p>Cyan = measured; gold = predicted. Lines connect each pair.
+
+ Coordinates refer to the recorded crop.</p>
+
+ <table><thead><tr><th>Star</th><th>Use</th><th>Measured x, y</th>
+
+ <th>Predicted x, y</th><th>Error</th></tr></thead><tbody>
+
+ ${rows.map(r=>`<tr><td>${r.star}</td><td>${r.kind}</td>
+
+ <td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td>
+
+ <td>${r.predicted?fmt(r.predicted.x,1)+', '+fmt(r.predicted.y,1):'Behind camera'}</td>
+
+ <td>${fmt(r.errorPx)} px</td></tr>`).join('')}</tbody></table>`;
+
+ paint();
+
 }
+
 function resizeGeometry(){
- const r=gc.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);
- cssWidth=Math.max(1,r.width);cssHeight=Math.max(1,r.height);
- gc.width=Math.round(cssWidth*dpr);gc.height=Math.round(cssHeight*dpr);
- gx.setTransform(dpr,0,0,dpr,0,0);paint();
+
+ const r=gc.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);
+
+ cssWidth=Math.max(1,r.width);cssHeight=Math.max(1,r.height);
+
+ gc.width=Math.round(cssWidth*dpr);gc.height=Math.round(cssHeight*dpr);
+
+ gx.setTransform(dpr,0,0,dpr,0,0);paint();
+
 }
+
 function cameraCoordinates(p){
- const a=sub(p,camera.target),c=Math.cos(camera.yaw),s=Math.sin(camera.yaw);
- const x=c*a[0]-s*a[2],z=s*a[0]+c*a[2];
- const cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);
- return [x,cp*a[1]-sp*z,sp*a[1]+cp*z];
+
+ const a=sub(p,camera.target),c=Math.cos(camera.yaw),s=Math.sin(camera.yaw);
+
+ const x=c*a[0]-s*a[2],z=s*a[0]+c*a[2];
+
+ const cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);
+
+ return [x,cp*a[1]-sp*z,sp*a[1]+cp*z];
+
 }
+
 function marker(p,color,label,r=5){
- gx.beginPath();gx.arc(p[0],p[1],r,0,Math.PI*2);
- gx.fillStyle=color;gx.fill();
- if(label){gx.fillStyle='#eef8ff';gx.font='13px system-ui';gx.fillText(label,p[0]+9,p[1]-7)}
+
+ gx.beginPath();gx.arc(p[0],p[1],r,0,Math.PI*2);
+
+ gx.fillStyle=color;gx.fill();
+
+ if(label){gx.fillStyle='#eef8ff';gx.font='13px system-ui';gx.fillText(label,p[0]+9,p[1]-7)}
+
 }
+
 function line(a,b,color,width=2){
- gx.strokeStyle=color;gx.lineWidth=width;gx.beginPath();
- gx.moveTo(...a);gx.lineTo(...b);gx.stroke();
+
+ gx.strokeStyle=color;gx.lineWidth=width;gx.beginPath();
+
+ gx.moveTo(...a);gx.lineTo(...b);gx.stroke();
+
 }
+
 function paint(){
- gx.clearRect(0,0,cssWidth,cssHeight);screenStars=[];
- if(!model){
-  gx.fillStyle='#9eb2c1';gx.font='14px system-ui';
-  gx.fillText('Calculate a constellation to display its model.',18,30);return;
- }
- const payload=originalExport();
- if(overviewMode){
-  const pts=NAMES.map(n=>point(payload,'flat',n));
-  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
-  const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
-  const s=Math.min((cssWidth-60)/Math.max(maxx-minx,1),(cssHeight-60)/Math.max(maxy-miny,1));
-  const out=pts.map(p=>[
-   cssWidth/2+(p.x-(minx+maxx)/2)*s,
-   cssHeight/2+(p.y-(miny+maxy)/2)*s
-  ]);
-  EDGES.forEach(([i,j])=>line(out[i],out[j],'#69e6df'));
-  out.forEach((p,i)=>marker(p,'#69e6df',NAMES[i]));
-  gx.fillStyle='#9eb2c1';gx.fillText('Recorded 2D overview — not a camera fit',15,22);return;
- }
- if(camera.selected!==null){
-  const i=camera.selected,id=`p${i+1}`,v=payload.views[id],d=state.views[id];
-  const w=v.image.width,h=v.image.height;
-  const scale=Math.min((cssWidth-20)/w,(cssHeight-20)/h);
-  const ox=(cssWidth-w*scale)/2,oy=(cssHeight-h*scale)/2;
-  const cv=p=>[ox+p.x*scale,oy+p.y*scale];
-  if(d.image){gx.globalAlpha=.65;gx.drawImage(d.image,ox,oy,w*scale,h*scale);gx.globalAlpha=1}
-  gx.strokeStyle='#385064';gx.strokeRect(ox,oy,w*scale,h*scale);
-  const f=model.camera.focalLengthPx,anchor=point(payload,id,NAMES[i]);
-  const projected=model.points.map(p=>{
-   const q=sub(p,model.points[i]),z=1-q[2];
-   return z>0?cv({x:anchor.x+f*q[0]/z,y:anchor.y-f*q[1]/z}):null;
-  });
-  gx.save();gx.beginPath();gx.rect(ox,oy,w*scale,h*scale);gx.clip();
-  EDGES.forEach(([a,b])=>{if(projected[a]&&projected[b])line(projected[a],projected[b],'#ffd66b88')});
-  model.reprojection.filter(r=>r.view===id).forEach(r=>{
-   if(r.predicted)line(cv(r.measured),cv(r.predicted),'#ff7f91',1);
-  });
-  Object.entries(v.points).forEach(([n,p])=>marker(cv(p),'#69e6df',n+' measured',4));
-  projected.forEach((p,j)=>{
-   if(!p)return;
-   gx.strokeStyle='#ffd66b';gx.lineWidth=2;gx.beginPath();gx.arc(...p,7,0,Math.PI*2);gx.stroke();
-   screenStars.push({i:j,p});
-  });
-  gx.restore();return;
- }
- const f=cssHeight/2/Math.tan(model.camera.fov*Math.PI/360);
- const project=p=>{
-  const q=cameraCoordinates(p),d=camera.distance-q[2];
-  return d>.00001?[cssWidth/2+f*q[0]/d,cssHeight/2-f*q[1]/d]:null;
- };
- if(overlay){
-  const p=overlay.points.map(project);
-  overlay.edges.forEach(([i,j])=>{if(p[i]&&p[j])line(p[i],p[j],'#c796ff',3)});
-  p.forEach((v,i)=>{if(v)marker(v,'#c796ff',overlay.labels[i],3)});
- }
- const p=model.points.map(project);
- EDGES.forEach(([i,j])=>{if(p[i]&&p[j])line(p[i],p[j],'#69e6df',3)});
- p.forEach((v,i)=>{if(v){marker(v,'#ffd66b',NAMES[i],6);screenStars.push({i,p:v})}});
- gx.fillStyle='#9eb2c1';gx.font='12px system-ui';
- gx.fillText('Drag to orbit • Wheel to zoom • Click a star for its measured view',12,20);
+
+ gx.clearRect(0,0,cssWidth,cssHeight);screenStars=[];
+
+ if(!model){
+
+  gx.fillStyle='#9eb2c1';gx.font='14px system-ui';
+
+  gx.fillText('Calculate a constellation to display its model.',18,30);return;
+
+ }
+
+ const payload=originalExport();
+
+ if(overviewMode){
+
+  const pts=NAMES.map(n=>point(payload,'flat',n));
+
+  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
+
+  const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
+
+  const s=Math.min((cssWidth-60)/Math.max(maxx-minx,1),(cssHeight-60)/Math.max(maxy-miny,1));
+
+  const out=pts.map(p=>[
+
+   cssWidth/2+(p.x-(minx+maxx)/2)*s,
+
+   cssHeight/2+(p.y-(miny+maxy)/2)*s
+
+  ]);
+
+  EDGES.forEach(([i,j])=>line(out[i],out[j],'#69e6df'));
+
+  out.forEach((p,i)=>marker(p,'#69e6df',NAMES[i]));
+
+  gx.fillStyle='#9eb2c1';gx.fillText('Recorded 2D overview — not a camera fit',15,22);return;
+
+ }
+
+ if(camera.selected!==null){
+
+  const i=camera.selected,id=`p${i+1}`,v=payload.views[id],d=state.views[id];
+
+  const w=v.image.width,h=v.image.height;
+
+  const scale=Math.min((cssWidth-20)/w,(cssHeight-20)/h);
+
+  const ox=(cssWidth-w*scale)/2,oy=(cssHeight-h*scale)/2;
+
+  const cv=p=>[ox+p.x*scale,oy+p.y*scale];
+
+  if(d.image){gx.globalAlpha=.65;gx.drawImage(d.image,ox,oy,w*scale,h*scale);gx.globalAlpha=1}
+
+  gx.strokeStyle='#385064';gx.strokeRect(ox,oy,w*scale,h*scale);
+
+  const f=model.camera.focalLengthPx,anchor=point(payload,id,NAMES[i]);
+
+  const projected=model.points.map(p=>{
+
+   const q=sub(p,model.points[i]),z=1-q[2];
+
+   return z>0?cv({x:anchor.x+f*q[0]/z,y:anchor.y-f*q[1]/z}):null;
+
+  });
+
+  gx.save();gx.beginPath();gx.rect(ox,oy,w*scale,h*scale);gx.clip();
+
+  EDGES.forEach(([a,b])=>{if(projected[a]&&projected[b])line(projected[a],projected[b],'#ffd66b88')});
+
+  model.reprojection.filter(r=>r.view===id).forEach(r=>{
+
+   if(r.predicted)line(cv(r.measured),cv(r.predicted),'#ff7f91',1);
+
+  });
+
+  Object.entries(v.points).forEach(([n,p])=>marker(cv(p),'#69e6df',n+' measured',4));
+
+  projected.forEach((p,j)=>{
+
+   if(!p)return;
+
+   gx.strokeStyle='#ffd66b';gx.lineWidth=2;gx.beginPath();gx.arc(...p,7,0,Math.PI*2);gx.stroke();
+
+   screenStars.push({i:j,p});
+
+  });
+
+  gx.restore();return;
+
+ }
+
+ const f=cssHeight/2/Math.tan(model.camera.fov*Math.PI/360);
+
+ const project=p=>{
+
+  const q=cameraCoordinates(p),d=camera.distance-q[2];
+
+  return d>.00001?[cssWidth/2+f*q[0]/d,cssHeight/2-f*q[1]/d]:null;
+
+ };
+
+ if(overlay){
+
+  const p=overlay.points.map(project);
+
+  overlay.edges.forEach(([i,j])=>{if(p[i]&&p[j])line(p[i],p[j],'#c796ff',3)});
+
+  p.forEach((v,i)=>{if(v)marker(v,'#c796ff',overlay.labels[i],3)});
+
+ }
+
+ const p=model.points.map(project);
+
+ EDGES.forEach(([i,j])=>{if(p[i]&&p[j])line(p[i],p[j],'#69e6df',3)});
+
+ p.forEach((v,i)=>{if(v){marker(v,'#ffd66b',NAMES[i],6);screenStars.push({i,p:v})}});
+
+ gx.fillStyle='#9eb2c1';gx.font='12px system-ui';
+
+ gx.fillText('Drag to orbit • Wheel to zoom • Click a star for its measured view',12,20);
+
 }
 
 gc.onpointerdown=e=>{
- if(!model||overviewMode)return;
- pointer={x:e.clientX,y:e.clientY,moved:false};
- gc.setPointerCapture(e.pointerId);
+
+ if(!model||overviewMode)return;
+
+ pointer={x:e.clientX,y:e.clientY,moved:false};
+
+ gc.setPointerCapture(e.pointerId);
+
 };
+
 gc.onpointermove=e=>{
- if(!pointer)return;
- const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;
- if(Math.abs(dx)+Math.abs(dy)>2)pointer.moved=true;
- if(pointer.moved){
-  if(camera.selected!==null)fitView();
-  camera.yaw+=dx*.008;camera.pitch=clamp(camera.pitch+dy*.008,-Math.PI/2,Math.PI/2);
-  pointer.x=e.clientX;pointer.y=e.clientY;paint();
- }
+
+ if(!pointer)return;
+
+ const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;
+
+ if(Math.abs(dx)+Math.abs(dy)>2)pointer.moved=true;
+
+ if(pointer.moved){
+
+  if(camera.selected!==null)fitView();
+
+  camera.yaw+=dx*.008;camera.pitch=clamp(camera.pitch+dy*.008,-Math.PI/2,Math.PI/2);
+
+  pointer.x=e.clientX;pointer.y=e.clientY;paint();
+
+ }
+
 };
+
 gc.onpointerup=e=>{
- if(!pointer)return;
- if(!pointer.moved){
-  const r=gc.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top];
-  const hit=screenStars.find(s=>norm(sub(s.p,p))<13);
-  if(hit)selectedView(hit.i);
- }
- pointer=null;
+
+ if(!pointer)return;
+
+ if(!pointer.moved){
+
+  const r=gc.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top];
+
+  const hit=screenStars.find(s=>norm(sub(s.p,p))<13);
+
+  if(hit)selectedView(hit.i);
+
+ }
+
+ pointer=null;
+
 };
+
 gc.onpointercancel=()=>pointer=null;
+
 gc.addEventListener('wheel',e=>{
- if(!model||overviewMode||camera.selected!==null)return;
- e.preventDefault();
- const {r}=centerAndRadius();
- camera.distance=clamp(camera.distance*Math.exp(e.deltaY*.001),r*1.05,r*100);
- paint();
+
+ if(!model||overviewMode||camera.selected!==null)return;
+
+ e.preventDefault();
+
+ const {r}=centerAndRadius();
+
+ camera.distance=clamp(camera.distance*Math.exp(e.deltaY*.001),r*1.05,r*100);
+
+ paint();
+
 },{passive:false});
+
 new ResizeObserver(resizeGeometry).observe(gc);
 
 $('geoCalculate').onclick=()=>{
+
  try{
-  const p=originalExport(),o=options();validateComplete(p);
-  model=reconstruct(p,o);modelKey=fingerprint();overlay=null;
-  searchResults=[];searchGeneration++;$('geoMatches').replaceChildren();
-  summarize();fitView(true);updateButtons();
- }catch(e){setStatus('geoStatus',e.message,'error')}
+
+  const p=originalExport(),o=options();
+
+  model=reconstruct(p,o);modelKey=fingerprint();overlay=null;overlaySelection='';overlayGeneration++;
+
+  searchResults=[];searchGeneration++;$('geoMatches').replaceChildren();
+
+  summarize();fitView(true);updateButtons();
+
+ }catch(e){setStatus('geoStatus',e.message,'error')}
+
 };
+
 $('geoTop').onclick=()=>fitView(true);
+
 $('geoFit').onclick=()=>fitView();
+
 $('geoOverview').onclick=()=>{overviewMode=true;$('geoReprojection').replaceChildren();paint()};
+
 document.querySelectorAll('[data-geo-star]').forEach(b=>b.onclick=()=>selectedView(Number(b.dataset.geoStar)));
-$('geoRemoveOverlay').onclick=()=>{overlay=null;updateButtons();paint()};
+
+$('geoRemoveOverlay').onclick=()=>{overlay=null;overlaySelection='';overlayGeneration++;renderMatches();updateButtons();paint()};
 
 function cameraChanged(){
- const fov=Number($('geoFov').value);
- CAMERA_CALIBRATION.verticalFovDeg=fov;
- CAMERA_CALIBRATION.id=fov===32.5?'constellation-zoom-camera/v1':'user-specified-fov';
- CAMERA_CALIBRATION.verticalFovUncertaintyDeg=fov===32.5?1:null;
- const value=`${$('geoWidth').value},${$('geoHeight').value}`;
- $('geoPreset').value=[...$('geoPreset').options].some(o=>o.value===value)?value:'custom';
- invalidate();
+
+ const fov=Number($('geoFov').value);
+
+ CAMERA_CALIBRATION.verticalFovDeg=fov;
+
+ CAMERA_CALIBRATION.id=fov===32.5?'constellation-zoom-camera/v1':'user-specified-fov';
+
+ CAMERA_CALIBRATION.verticalFovUncertaintyDeg=fov===32.5?1:null;
+
+ const value=`${$('geoWidth').value},${$('geoHeight').value}`;
+
+ $('geoPreset').value=[...$('geoPreset').options].some(o=>o.value===value)?value:'custom';
+
+ invalidate();
+
 }
+
 for(const id of ['geoWidth','geoHeight','geoFov'])$(id).addEventListener('input',cameraChanged);
+
 $('geoPreset').onchange=()=>{
- if($('geoPreset').value==='custom')return;
- const [w,h]=$('geoPreset').value.split(',');
- $('geoWidth').value=w;$('geoHeight').value=h;cameraChanged();
+
+ if($('geoPreset').value==='custom')return;
+
+ const [w,h]=$('geoPreset').value.split(',');
+
+ $('geoWidth').value=w;$('geoHeight').value=h;cameraChanged();
+
 };
+
 $('character').addEventListener('input',invalidate);
 
 exportData=function(){
- const out=originalExport(),o=options();
- out.originalViewport={width:o.width,height:o.height};
- out.cameraCalibration={
-  ...CAMERA_CALIBRATION,verticalFovDeg:o.fov,
-  provenance:'Prior working estimate; fixed-offset camera assumption'
- };
- if(currentValid())out.reconstruction3d=JSON.parse(JSON.stringify(model));
- return out;
+
+ const out=originalExport(),o=options();
+
+ out.originalViewport={width:o.width,height:o.height};
+
+ out.cameraCalibration={
+
+  ...CAMERA_CALIBRATION,verticalFovDeg:o.fov,
+
+  provenance:'Empirical spherical camera-flow fit from rotating background stars at 1600x1200 and 1920x1200; fixed-offset camera assumption'
+
+ };
+
+ if(currentValid())out.reconstruction3d=JSON.parse(JSON.stringify(model));
+
+ return out;
+
 };
+
 importData=function(payload){
- model=null;overlay=null;searchResults=[];searchGeneration++;
- const o=settingsFor(payload);
- $('geoWidth').value=o?.width||1600;
- $('geoHeight').value=o?.height||1200;
- $('geoFov').value=o?.fov||32.5;
- originalImport(payload);cameraChanged();
- if(!o)setStatus('geoStatus',
-  'Legacy record: viewport defaulted to 1600 × 1200. Confirm it before calculating.');
+
+ model=null;overlay=null;overlaySelection='';overlayGeneration++;searchResults=[];searchGeneration++;
+
+ const o=settingsFor(payload);
+
+ $('geoWidth').value=o?.width||1600;
+
+ $('geoHeight').value=o?.height||1200;
+
+ $('geoFov').value=o?.fov||32.5;
+
+ originalImport(payload);cameraChanged();
+
+ if(!o)setStatus('geoStatus',
+
+  'Legacy record: viewport defaulted to 1600 × 1200. Confirm it before calculating.');
+
 };
+
 renderAll=function(){originalRender();invalidate()};
+
 supabase.auth.onAuthStateChange(()=>setTimeout(updateButtons,0));
 
 /* Shape comparison: proper rotations and reflections are separate. */
+
 function normalized(p){
- const c=p.reduce((s,v)=>add(s,v),[0,0,0]).map(x=>x/p.length);
- const q=p.map(v=>sub(v,c)),r=Math.sqrt(q.reduce((s,v)=>s+dot(v,v),0)/q.length);
- if(r<1e-10)throw Error('Degenerate shape.');
- return q.map(v=>mul(v,1/r));
+
+ const c=p.reduce((s,v)=>add(s,v),[0,0,0]).map(x=>x/p.length);
+
+ const q=p.map(v=>sub(v,c)),r=Math.sqrt(q.reduce((s,v)=>s+dot(v,v),0)/q.length);
+
+ if(r<1e-10)throw Error('Degenerate shape.');
+
+ return q.map(v=>mul(v,1/r));
+
 }
+
 function rotateQuaternion(p,q){
- const [w,x,y,z]=q;
- return [
-  (1-2*(y*y+z*z))*p[0]+2*(x*y-z*w)*p[1]+2*(x*z+y*w)*p[2],
-  2*(x*y+z*w)*p[0]+(1-2*(x*x+z*z))*p[1]+2*(y*z-x*w)*p[2],
-  2*(x*z-y*w)*p[0]+2*(y*z+x*w)*p[1]+(1-2*(x*x+y*y))*p[2]
- ];
+
+ const [w,x,y,z]=q;
+
+ return [
+
+  (1-2*(y*y+z*z))*p[0]+2*(x*y-z*w)*p[1]+2*(x*z+y*w)*p[2],
+
+  2*(x*y+z*w)*p[0]+(1-2*(x*x+z*z))*p[1]+2*(y*z-x*w)*p[2],
+
+  2*(x*z-y*w)*p[0]+2*(y*z+x*w)*p[1]+(1-2*(x*x+y*y))*p[2]
+
+ ];
+
 }
+
 function alignShape(source,target){
- const S=Array.from({length:3},()=>[0,0,0]);
- source.forEach((p,i)=>p.forEach((x,j)=>target[i].forEach((y,k)=>S[j][k]+=x*y)));
- const [[a,b,c],[d,e,f],[g,h,i]]=S;
- const A=[
-  [a+e+i,f-h,g-c,b-d],
-  [f-h,a-e-i,b+d,g+c],
-  [g-c,b+d,-a+e-i,f+h],
-  [b-d,g+c,f+h,-a-e+i]
- ];
- const V=Array.from({length:4},(_,r)=>Array.from({length:4},(_,c)=>+(r===c)));
- for(let it=0;it<60;it++){
-  let p=0,q=1;
-  for(let j=0;j<4;j++)for(let k=j+1;k<4;k++)
-   if(Math.abs(A[j][k])>Math.abs(A[p][q])){p=j;q=k}
-  if(Math.abs(A[p][q])<1e-12)break;
-  const t=.5*Math.atan2(2*A[p][q],A[q][q]-A[p][p]);
-  const cs=Math.cos(t),sn=Math.sin(t),pp=A[p][p],qq=A[q][q],pq=A[p][q];
-  for(let k=0;k<4;k++)if(k!==p&&k!==q){
-   const x=A[k][p],y=A[k][q];
-   A[k][p]=A[p][k]=cs*x-sn*y;A[k][q]=A[q][k]=sn*x+cs*y;
-  }
-  A[p][p]=cs*cs*pp-2*cs*sn*pq+sn*sn*qq;
-  A[q][q]=sn*sn*pp+2*cs*sn*pq+cs*cs*qq;
-  A[p][q]=A[q][p]=0;
-  for(let k=0;k<4;k++){
-   const x=V[k][p],y=V[k][q];V[k][p]=cs*x-sn*y;V[k][q]=sn*x+cs*y;
-  }
- }
- const j=A.map((r,k)=>r[k]).reduce((best,x,k)=>x>A[best][best]?k:best,0);
- let q=V.map(r=>r[j]);if(q[0]<0)q=q.map(x=>-x);
- const points=source.map(p=>rotateQuaternion(p,q));
- return {
-  points,q,
-  error:Math.sqrt(points.reduce((s,p,k)=>s+dot(sub(p,target[k]),sub(p,target[k])),0)/points.length)
- };
+
+ const S=Array.from({length:3},()=>[0,0,0]);
+
+ source.forEach((p,i)=>p.forEach((x,j)=>target[i].forEach((y,k)=>S[j][k]+=x*y)));
+
+ const [[a,b,c],[d,e,f],[g,h,i]]=S;
+
+ const A=[
+
+  [a+e+i,f-h,g-c,b-d],
+
+  [f-h,a-e-i,b+d,g+c],
+
+  [g-c,b+d,-a+e-i,f+h],
+
+  [b-d,g+c,f+h,-a-e+i]
+
+ ];
+
+ const V=Array.from({length:4},(_,r)=>Array.from({length:4},(_,c)=>+(r===c)));
+
+ for(let it=0;it<60;it++){
+
+  let p=0,q=1;
+
+  for(let j=0;j<4;j++)for(let k=j+1;k<4;k++)
+
+   if(Math.abs(A[j][k])>Math.abs(A[p][q])){p=j;q=k}
+
+  if(Math.abs(A[p][q])<1e-12)break;
+
+  const t=.5*Math.atan2(2*A[p][q],A[q][q]-A[p][p]);
+
+  const cs=Math.cos(t),sn=Math.sin(t),pp=A[p][p],qq=A[q][q],pq=A[p][q];
+
+  for(let k=0;k<4;k++)if(k!==p&&k!==q){
+
+   const x=A[k][p],y=A[k][q];
+
+   A[k][p]=A[p][k]=cs*x-sn*y;A[k][q]=A[q][k]=sn*x+cs*y;
+
+  }
+
+  A[p][p]=cs*cs*pp-2*cs*sn*pq+sn*sn*qq;
+
+  A[q][q]=sn*sn*pp+2*cs*sn*pq+cs*cs*qq;
+
+  A[p][q]=A[q][p]=0;
+
+  for(let k=0;k<4;k++){
+
+   const x=V[k][p],y=V[k][q];V[k][p]=cs*x-sn*y;V[k][q]=sn*x+cs*y;
+
+  }
+
+ }
+
+ const j=A.map((r,k)=>r[k]).reduce((best,x,k)=>x>A[best][best]?k:best,0);
+
+ let q=V.map(r=>r[j]);if(q[0]<0)q=q.map(x=>-x);
+
+ const points=source.map(p=>rotateQuaternion(p,q));
+
+ return {
+
+  points,q,
+
+  error:Math.sqrt(points.reduce((s,p,k)=>s+dot(sub(p,target[k]),sub(p,target[k])),0)/points.length)
+
+ };
+
 }
+
 function permutations(a){
- if(a.length===1)return [a];
- return a.flatMap((v,i)=>permutations(a.filter((_,j)=>j!==i)).map(p=>[v,...p]));
+
+ if(a.length===1)return [a];
+
+ return a.flatMap((v,i)=>permutations(a.filter((_,j)=>j!==i)).map(p=>[v,...p]));
+
 }
+
 const maps=permutations([0,1,2,3,4,5]);
+
 function fitMapping(candidate,target,mapping,reflected=false){
- const source=mapping.map(i=>candidate[i].map((v,k)=>reflected&&k===0?-v:v));
- return {...alignShape(source,target),source,mapping,reflected};
+
+ const source=mapping.map(i=>candidate[i].map((v,k)=>reflected&&k===0?-v:v));
+
+ return {...alignShape(source,target),source,mapping,reflected};
+
 }
+
 function renderMatches(){
- const rank=$('geoRank').value;
- const sorted=[...searchResults].sort((a,b)=>a[rank].error-b[rank].error).slice(0,20);
- $('geoMatches').innerHTML=sorted.length?`
- <p class="geo-note">
- Error is RMS point distance as a percentage of the target's RMS radius,
- after centering, equal-RMS scaling and alignment.
- Arbitrary and mirrored searches test all 720 labelings; these are exploratory
- fits, not significance scores. Visible-edge topology was not recorded by
- this checker and is not tested.
- </p>
- <table><thead><tr><th>Character</th><th>Same order</th><th>Reversed</th>
- <th>Any rotation</th><th>Mirrored</th><th>Overlay</th></tr></thead><tbody>
- ${sorted.map(r=>`<tr><td>${esc(r.name)}</td>
- <td>${fmt(r.direct.error*100,2)}%</td>
- <td>${fmt(r.reverse.error*100,2)}%</td>
- <td>${fmt(r.any.error*100,2)}%</td>
- <td>${fmt(r.mirror.error*100,2)}%</td>
- <td><button data-match="${r.index}" data-kind="${rank}">View ${rank}</button></td></tr>`).join('')}
- </tbody></table>`:'';
+
+ const rank=$('geoRank').value;
+
+ const sorted=[...searchResults].sort((a,b)=>a[rank].error-b[rank].error).slice(0,20);
+
+ $('geoMatches').innerHTML=sorted.length?`
+
+ <p class="geo-note">
+
+ Error is RMS point distance as a percentage of the target's RMS radius,
+
+ after centering, equal-RMS scaling and alignment.
+
+ Arbitrary and mirrored searches test all 720 labelings; these are exploratory
+
+ fits, not significance scores. Visible-edge topology was not recorded by
+
+ this checker and is not tested.
+
+ </p>
+
+ <table><thead><tr><th>Character</th><th>Same order</th><th>Reversed</th>
+
+ <th>Any rotation</th><th>Mirrored</th><th>Overlay</th></tr></thead><tbody>
+
+ ${sorted.map(r=>`<tr><td>${esc(r.name)}</td>
+
+ <td>${fmt(r.direct.error*100,2)}%</td>
+
+ <td>${fmt(r.reverse.error*100,2)}%</td>
+
+ <td>${fmt(r.any.error*100,2)}%</td>
+
+ <td>${fmt(r.mirror.error*100,2)}%</td>
+
+ <td><button data-match="${r.index}" data-kind="${rank}">${overlaySelection===`${r.index}:${rank}`?'Deselect':`View ${rank}`}</button></td></tr>`).join('')}
+
+ </tbody></table>`:'';
+
  $('geoMatches').querySelectorAll('[data-match]').forEach(b=>b.onclick=()=>{
+
   const r=searchResults.find(r=>r.index===Number(b.dataset.match));
-  showAlignment(r,r[b.dataset.kind]);
+
+  const key=`${r.index}:${b.dataset.kind}`;
+
+  if(overlaySelection===key){overlay=null;overlaySelection='';overlayGeneration++;setStatus('geoSearchStatus','Comparison deselected.');renderMatches();updateButtons();paint();return}
+
+  overlaySelection=key;showAlignment(r,r[b.dataset.kind]);renderMatches();
+
  });
+
 }
+
 $('geoRank').onchange=renderMatches;
+
 function showAlignment(result,fit){
- if(!currentValid())return;
- fitView(true);
- const {c}=centerAndRadius();
- const radius=Math.sqrt(model.points.reduce((s,p)=>s+dot(sub(p,c),sub(p,c)),0)/6);
- const generation=searchGeneration,started=performance.now();
- const labels=fit.mapping.map(i=>NAMES[i]);
- const edges=EDGES.map(([i,j])=>[fit.mapping.indexOf(i),fit.mapping.indexOf(j)]);
- setStatus('geoSearchStatus',
-  `${result.name}: ${fit.mapping.map((j,i)=>NAMES[j]+' → '+NAMES[i]).join(', ')}. `+
-  (fit.reflected?'Reflection plus rotation.':'Proper rotation.'));
- function animate(now){
-  if(generation!==searchGeneration||!model)return;
-  const t=clamp((now-started)/700,0,1),angle=Math.acos(clamp(fit.q[0],-1,1));
-  let q;
-  if(angle<1e-8)q=[1,0,0,0];
-  else{
-   const a=Math.sin((1-t)*angle)/Math.sin(angle),b=Math.sin(t*angle)/Math.sin(angle);
-   q=[a+b*fit.q[0],b*fit.q[1],b*fit.q[2],b*fit.q[3]];
-  }
-  overlay={points:fit.source.map(p=>add(c,mul(rotateQuaternion(p,q),radius))),edges,labels};
-  updateButtons();paint();
-  if(t<1)requestAnimationFrame(animate);
- }
- requestAnimationFrame(animate);
+
+ if(!currentValid())return;
+
+ fitView(true);
+
+ const {c}=centerAndRadius();
+
+ const radius=Math.sqrt(model.points.reduce((s,p)=>s+dot(sub(p,c),sub(p,c)),0)/6);
+
+ const generation=++overlayGeneration,started=performance.now();
+
+ const labels=fit.mapping.map(i=>NAMES[i]);
+
+ const edges=EDGES.map(([i,j])=>[fit.mapping.indexOf(i),fit.mapping.indexOf(j)]);
+
+ setStatus('geoSearchStatus',
+
+  `${result.name}: ${fit.mapping.map((j,i)=>NAMES[j]+' → '+NAMES[i]).join(', ')}. `+
+
+  (fit.reflected?'Reflection plus rotation.':'Proper rotation.'));
+
+ function animate(now){
+
+  if(generation!==overlayGeneration||!model)return;
+
+  const t=clamp((now-started)/700,0,1),angle=Math.acos(clamp(fit.q[0],-1,1));
+
+  let q;
+
+  if(angle<1e-8)q=[1,0,0,0];
+
+  else{
+
+   const a=Math.sin((1-t)*angle)/Math.sin(angle),b=Math.sin(t*angle)/Math.sin(angle);
+
+   q=[a+b*fit.q[0],b*fit.q[1],b*fit.q[2],b*fit.q[3]];
+
+  }
+
+  overlay={points:fit.source.map(p=>add(c,mul(rotateQuaternion(p,q),radius))),edges,labels};
+
+  updateButtons();paint();
+
+  if(t<1)requestAnimationFrame(animate);
+
+ }
+
+ requestAnimationFrame(animate);
+
 }
+
 $('geoSearch').onclick=async()=>{
- if(!currentValid()||!signedInUser)return;
+
+ if(!currentValid()||!signedInUser)return;
+
  const generation=++searchGeneration,target=normalized(model.points);
+
  const ownCharacter=selectedCharacter();
- searchResults=[];$('geoMatches').replaceChildren();$('geoSearch').disabled=true;
- try{
-  let offset=0,rows=[],more=true;
-  while(more){
-   const {data,error}=await supabase.from('constellation_chain_measurements')
-    .select('id,character_id,payload')
-    .order('id').range(offset,offset+199);
-   if(error)throw Error(error.message);
-   rows.push(...(data||[]));more=data?.length===200;offset+=200;
-   if(generation!==searchGeneration)return;
-  }
-  let skipped=0,processed=0;
-  for(const row of rows){
-   if(String(row.character_id)===String(ownCharacter.avatar_id))continue;
-   const o=settingsFor(row.payload);
-   if(!o){skipped++;continue}
-   let candidate;
-   try{candidate=normalized(reconstruct(row.payload,o).points)}catch{skipped++;continue}
-   const direct=fitMapping(candidate,target,[0,1,2,3,4,5]);
-   const reverse=fitMapping(candidate,target,[5,4,3,2,1,0]);
-   let any=direct,mirror=null;
-   for(let k=0;k<maps.length;k++){
-    const a=fitMapping(candidate,target,maps[k]);
-    const b=fitMapping(candidate,target,maps[k],true);
-    if(a.error<any.error)any=a;
-    if(!mirror||b.error<mirror.error)mirror=b;
-    if(k%72===0){await nextFrame();if(generation!==searchGeneration)return}
-   }
-   const name=characterCatalog.find(c=>String(c.avatar_id)===String(row.character_id))?.name||String(row.character_id);
-   searchResults.push({index:searchResults.length,name,direct,reverse,any,mirror});
-   processed++;
-   setStatus('geoSearchStatus',`Compared ${processed} saved records…`);
-  }
-  renderMatches();
-  setStatus('geoSearchStatus',
-   `Compared ${processed} accessible records; skipped ${skipped} without usable measurements or explicit viewport metadata. `+
-   'Database access policies determine which records are visible.');
- }catch(e){setStatus('geoSearchStatus',`Search failed: ${e.message}`,'error')}
- finally{if(generation===searchGeneration)updateButtons()}
+
+ overlay=null;overlaySelection='';overlayGeneration++;searchResults=[];$('geoMatches').replaceChildren();$('geoSearch').disabled=true;
+
+ try{
+
+  let offset=0,rows=[],more=true;
+
+  while(more){
+
+   const {data,error}=await supabase.from('constellation_chain_measurements')
+
+    .select('id,character_id,payload')
+
+    .order('id').range(offset,offset+199);
+
+   if(error)throw Error(error.message);
+
+   rows.push(...(data||[]));more=data?.length===200;offset+=200;
+
+   if(generation!==searchGeneration)return;
+
+  }
+
+  let skipped=0,processed=0;
+
+  for(const row of rows){
+
+   if(String(row.character_id)===String(ownCharacter.avatar_id))continue;
+
+   const o=settingsFor(row.payload);
+
+   if(!o){skipped++;continue}
+
+   let candidate;
+
+   try{candidate=normalized(reconstruct(row.payload,o).points)}catch{skipped++;continue}
+
+   const direct=fitMapping(candidate,target,[0,1,2,3,4,5]);
+
+   const reverse=fitMapping(candidate,target,[5,4,3,2,1,0]);
+
+   let any=direct,mirror=null;
+
+   for(let k=0;k<maps.length;k++){
+
+    const a=fitMapping(candidate,target,maps[k]);
+
+    const b=fitMapping(candidate,target,maps[k],true);
+
+    if(a.error<any.error)any=a;
+
+    if(!mirror||b.error<mirror.error)mirror=b;
+
+    if(k%72===0){await nextFrame();if(generation!==searchGeneration)return}
+
+   }
+
+   const name=characterCatalog.find(c=>String(c.avatar_id)===String(row.character_id))?.name||String(row.character_id);
+
+   searchResults.push({index:searchResults.length,name,direct,reverse,any,mirror});
+
+   processed++;
+
+   setStatus('geoSearchStatus',`Compared ${processed} saved records…`);
+
+  }
+
+  renderMatches();
+
+  setStatus('geoSearchStatus',
+
+   `Compared ${processed} accessible records; skipped ${skipped} without usable measurements or explicit viewport metadata. `+
+
+   'Database access policies determine which records are visible.');
+
+ }catch(e){setStatus('geoSearchStatus',`Search failed: ${e.message}`,'error')}
+
+ finally{if(generation===searchGeneration)updateButtons()}
+
 };
 
 /* STL: union of spheres and rounded bars via marching tetrahedra. */
+
 $('geoStl').onclick=async()=>{
- if(!currentValid())return;
- $('geoStl').disabled=true;
- try{
-  const size=Number($('geoSize').value),ball=Number($('geoBall').value),bar=Number($('geoBar').value);
-  const detail=Number($('geoDetail').value);
-  if(![size,ball,bar].every(x=>Number.isFinite(x)&&x>0)||size<=ball||bar>ball)
-   throw Error('Use positive sizes, total size larger than the balls, and bars no thicker than the balls.');
-  const raw=model.points.map(p=>[...p]);
-  const mins=[0,1,2].map(k=>Math.min(...raw.map(p=>p[k])));
-  const maxs=[0,1,2].map(k=>Math.max(...raw.map(p=>p[k])));
-  const span=Math.max(...maxs.map((v,k)=>v-mins[k]));
-  const scale=(size-ball)/span;
-  const center=mins.map((v,k)=>(v+maxs[k])/2);
-  const pts=raw.map(p=>mul(sub(p,center),scale));
-  const rb=ball/2,rc=bar/2;
-  const h=size/detail;
-  if(h>bar/2)throw Error('Bars are too thin for this mesh detail. Increase detail or bar diameter.');
-  const lo=[0,1,2].map(k=>Math.min(...pts.map(p=>p[k]))-rb-2*h);
-  const hi=[0,1,2].map(k=>Math.max(...pts.map(p=>p[k]))+rb+2*h);
-  const dims=hi.map((v,k)=>Math.ceil((v-lo[k])/h));
-  const [nx,ny,nz]=dims;
-  const count=(nx+1)*(ny+1)*(nz+1);
-  if(count>2500000)throw Error('Mesh is too large; reduce detail.');
-  const values=new Float32Array(count);
-  const index=(x,y,z)=>(x*(ny+1)+y)*(nz+1)+z;
-  function sdf(p){
-   let d=Math.min(...pts.map(q=>norm(sub(p,q))-rb));
-   for(const [i,j] of EDGES){
-    const a=pts[i],v=sub(pts[j],a);
-    const t=clamp(dot(sub(p,a),v)/dot(v,v),0,1);
-    d=Math.min(d,norm(sub(p,add(a,mul(v,t))))-rc);
-   }
-   return d;
-  }
-  for(let x=0;x<=nx;x++){
-   for(let y=0;y<=ny;y++)for(let z=0;z<=nz;z++){
-    let d=sdf([lo[0]+x*h,lo[1]+y*h,lo[2]+z*h]);
-    if(Math.abs(d)<1e-7)d=1e-7;
-    values[index(x,y,z)]=d;
-   }
-   if(x%4===0){
-    setStatus('geoStatus',`Preparing STL surface: ${Math.round(x/nx*45)}%`);
-    await nextFrame();
-   }
-  }
-  const corners=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
-  const tetra=[[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]];
-  const chunks=['solid constellation\n'];
-  let triangles=0;
-  function triangle(a,b,c,outward){
-   let normal=cross(sub(b,a),sub(c,a));
-   if(norm(normal)<1e-12)return;
-   if(dot(normal,outward)<0){[b,c]=[c,b];normal=mul(normal,-1)}
-   normal=mul(normal,1/norm(normal));
-   chunks.push(
-    `facet normal ${normal.join(' ')}\nouter loop\n`+
-    [a,b,c].map(p=>`vertex ${p.map(v=>v.toFixed(6)).join(' ')}\n`).join('')+
-    'endloop\nendfacet\n'
-   );
-   triangles++;
-  }
-  for(let x=0;x<nx;x++){
-   for(let y=0;y<ny;y++)for(let z=0;z<nz;z++){
-    const p=corners.map(([a,b,c])=>[lo[0]+(x+a)*h,lo[1]+(y+b)*h,lo[2]+(z+c)*h]);
-    const d=corners.map(([a,b,c])=>values[index(x+a,y+b,z+c)]);
-    if(d.every(v=>v>0)||d.every(v=>v<0))continue;
-    for(const t of tetra){
-     const inside=t.filter(i=>d[i]<0),outside=t.filter(i=>d[i]>0);
-     if(!inside.length||!outside.length)continue;
-     const avg=ids=>mul(ids.reduce((s,i)=>add(s,p[i]),[0,0,0]),1/ids.length);
-     const outward=sub(avg(outside),avg(inside));
-     const cut=(i,j)=>add(p[i],mul(sub(p[j],p[i]),d[i]/(d[i]-d[j])));
-     if(inside.length===1){
-      const a=inside[0],v=outside.map(b=>cut(a,b));
-      triangle(v[0],v[1],v[2],outward);
-     }else if(outside.length===1){
-      const a=outside[0],v=inside.map(b=>cut(a,b));
-      triangle(v[0],v[1],v[2],outward);
-     }else{
-      const [a,b]=inside,[c,d0]=outside;
-      const ac=cut(a,c),ad=cut(a,d0),bc=cut(b,c),bd=cut(b,d0);
-      triangle(ac,ad,bd,outward);triangle(ac,bd,bc,outward);
-     }
-    }
-   }
-   if(x%3===0){
-    setStatus('geoStatus',`Building STL mesh: ${45+Math.round(x/nx*55)}%`);
-    await nextFrame();
-   }
-  }
-  chunks.push('endsolid constellation\n');
-  const blob=new Blob(chunks,{type:'model/stl'});
-  const url=URL.createObjectURL(blob),a=document.createElement('a');
-  a.href=url;a.download=($('character').value.trim()||'constellation')+'_3d.stl';
-  a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
-  setStatus('geoStatus',`STL downloaded: ${triangles.toLocaleString()} triangles. Preview it in your slicer.`,'success');
- }catch(e){setStatus('geoStatus',`STL export failed: ${e.message}`,'error')}
- finally{updateButtons()}
+
+ if(!currentValid())return;
+
+ $('geoStl').disabled=true;
+
+ try{
+
+  const size=Number($('geoSize').value),ball=Number($('geoBall').value),bar=Number($('geoBar').value);
+
+  const detail=Number($('geoDetail').value);
+
+  if(![size,ball,bar].every(x=>Number.isFinite(x)&&x>0)||size<=ball||bar>ball)
+
+   throw Error('Use positive sizes, total size larger than the balls, and bars no thicker than the balls.');
+
+  const raw=model.points.map(p=>[...p]);
+
+  const mins=[0,1,2].map(k=>Math.min(...raw.map(p=>p[k])));
+
+  const maxs=[0,1,2].map(k=>Math.max(...raw.map(p=>p[k])));
+
+  const span=Math.max(...maxs.map((v,k)=>v-mins[k]));
+
+  const scale=(size-ball)/span;
+
+  const center=mins.map((v,k)=>(v+maxs[k])/2);
+
+  const pts=raw.map(p=>mul(sub(p,center),scale));
+
+  const rb=ball/2,rc=bar/2;
+
+  const h=size/detail;
+
+  if(h>bar/2)throw Error('Bars are too thin for this mesh detail. Increase detail or bar diameter.');
+
+  const lo=[0,1,2].map(k=>Math.min(...pts.map(p=>p[k]))-rb-2*h);
+
+  const hi=[0,1,2].map(k=>Math.max(...pts.map(p=>p[k]))+rb+2*h);
+
+  const dims=hi.map((v,k)=>Math.ceil((v-lo[k])/h));
+
+  const [nx,ny,nz]=dims;
+
+  const count=(nx+1)*(ny+1)*(nz+1);
+
+  if(count>2500000)throw Error('Mesh is too large; reduce detail.');
+
+  const values=new Float32Array(count);
+
+  const index=(x,y,z)=>(x*(ny+1)+y)*(nz+1)+z;
+
+  function sdf(p){
+
+   let d=Math.min(...pts.map(q=>norm(sub(p,q))-rb));
+
+   for(const [i,j] of EDGES){
+
+    const a=pts[i],v=sub(pts[j],a);
+
+    const t=clamp(dot(sub(p,a),v)/dot(v,v),0,1);
+
+    d=Math.min(d,norm(sub(p,add(a,mul(v,t))))-rc);
+
+   }
+
+   return d;
+
+  }
+
+  for(let x=0;x<=nx;x++){
+
+   for(let y=0;y<=ny;y++)for(let z=0;z<=nz;z++){
+
+    let d=sdf([lo[0]+x*h,lo[1]+y*h,lo[2]+z*h]);
+
+    if(Math.abs(d)<1e-7)d=1e-7;
+
+    values[index(x,y,z)]=d;
+
+   }
+
+   if(x%4===0){
+
+    setStatus('geoStatus',`Preparing STL surface: ${Math.round(x/nx*45)}%`);
+
+    await nextFrame();
+
+   }
+
+  }
+
+  const corners=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
+
+  const tetra=[[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]];
+
+  const chunks=['solid constellation\n'];
+
+  let triangles=0;
+
+  function triangle(a,b,c,outward){
+
+   let normal=cross(sub(b,a),sub(c,a));
+
+   if(norm(normal)<1e-12)return;
+
+   if(dot(normal,outward)<0){[b,c]=[c,b];normal=mul(normal,-1)}
+
+   normal=mul(normal,1/norm(normal));
+
+   chunks.push(
+
+    `facet normal ${normal.join(' ')}\nouter loop\n`+
+
+    [a,b,c].map(p=>`vertex ${p.map(v=>v.toFixed(6)).join(' ')}\n`).join('')+
+
+    'endloop\nendfacet\n'
+
+   );
+
+   triangles++;
+
+  }
+
+  for(let x=0;x<nx;x++){
+
+   for(let y=0;y<ny;y++)for(let z=0;z<nz;z++){
+
+    const p=corners.map(([a,b,c])=>[lo[0]+(x+a)*h,lo[1]+(y+b)*h,lo[2]+(z+c)*h]);
+
+    const d=corners.map(([a,b,c])=>values[index(x+a,y+b,z+c)]);
+
+    if(d.every(v=>v>0)||d.every(v=>v<0))continue;
+
+    for(const t of tetra){
+
+     const inside=t.filter(i=>d[i]<0),outside=t.filter(i=>d[i]>0);
+
+     if(!inside.length||!outside.length)continue;
+
+     const avg=ids=>mul(ids.reduce((s,i)=>add(s,p[i]),[0,0,0]),1/ids.length);
+
+     const outward=sub(avg(outside),avg(inside));
+
+     const cut=(i,j)=>add(p[i],mul(sub(p[j],p[i]),d[i]/(d[i]-d[j])));
+
+     if(inside.length===1){
+
+      const a=inside[0],v=outside.map(b=>cut(a,b));
+
+      triangle(v[0],v[1],v[2],outward);
+
+     }else if(outside.length===1){
+
+      const a=outside[0],v=inside.map(b=>cut(a,b));
+
+      triangle(v[0],v[1],v[2],outward);
+
+     }else{
+
+      const [a,b]=inside,[c,d0]=outside;
+
+      const ac=cut(a,c),ad=cut(a,d0),bc=cut(b,c),bd=cut(b,d0);
+
+      triangle(ac,ad,bd,outward);triangle(ac,bd,bc,outward);
+
+     }
+
+    }
+
+   }
+
+   if(x%3===0){
+
+    setStatus('geoStatus',`Building STL mesh: ${45+Math.round(x/nx*55)}%`);
+
+    await nextFrame();
+
+   }
+
+  }
+
+  chunks.push('endsolid constellation\n');
+
+  const blob=new Blob(chunks,{type:'model/stl'});
+
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+
+  a.href=url;a.download=($('character').value.trim()||'constellation')+'_3d.stl';
+
+  a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
+
+  setStatus('geoStatus',`STL downloaded: ${triangles.toLocaleString()} triangles. Preview it in your slicer.`,'success');
+
+ }catch(e){setStatus('geoStatus',`STL export failed: ${e.message}`,'error')}
+
+ finally{updateButtons()}
+
 };
 
 updateButtons();
+
 resizeGeometry();
+
 }
 
-document.addEventListener('paste', e => {
-  if (e.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+document.addEventListener('paste', async e => {
 
-  const item = [...(e.clipboardData?.items || [])]
-    .find(item => item.type.startsWith('image/'));
+  if (e.target.closest?.('input, textarea, [contenteditable="true"]')) return;
 
-  const image = item?.getAsFile();
-  if (!image) return;
+  const item = [...(e.clipboardData?.items || [])]
 
-  e.preventDefault();
+    .find(item => item.type.startsWith('image/'));
 
-  const transfer = new DataTransfer();
-  transfer.items.add(image);
-  $('file').files = transfer.files;
-  $('file').dispatchEvent(new Event('change'));
+  const image = item?.getAsFile();
+
+  if (!image) return;
+
+  e.preventDefault();
+
+  try{await setViewImage(image,image.name||`pasted-${state.active}.png`);setStatus('dbStatus',`Pasted image loaded into ${currentDef().title}.`,'success')}catch(error){setStatus('dbStatus',error.message,'error')}
+
 });
 
 
+
 supabase.auth.getSession().then(({data})=>setSignedIn(data.session?.user||null));supabase.auth.onAuthStateChange((_event,session)=>setSignedIn(session?.user||null));
+
 window.onresize=()=>{if(current().image)fitImage()};renderAll();
+
 </script>
+
 </body>
+
 </html>
