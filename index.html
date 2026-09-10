@@ -3,34 +3,36 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Project Adam Capture Uploader v1.2</title>
+  <title>Project Adam Capture Uploader v1.1.0</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-    body { max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
-    section { border: 1px solid #8886; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }
+    * { box-sizing: border-box; }
+    body { max-width: 820px; margin: 2rem auto; padding: 0 1rem 3rem; line-height: 1.45; }
+    section { border: 1px solid #8886; border-radius: .55rem; padding: 1rem; margin: 1rem 0; }
     label { display: block; margin: .7rem 0 .25rem; }
     input, button { font: inherit; padding: .55rem; }
-    input[type="email"], input[type="password"] { width: min(28rem, calc(100% - 1.2rem)); }
+    input[type="email"], input[type="password"] { width: min(30rem, 100%); }
     button { cursor: pointer; margin: .5rem .35rem 0 0; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
     code { overflow-wrap: anywhere; }
     .muted { opacity: .72; }
-    .error { color: #d33; }
-    .success { color: #198754; }
-    #captures { padding-left: 1.25rem; }
-    #captures li { margin: .65rem 0; }
+    .error { color: #e5484d; }
+    .success { color: #30a46c; }
+    .version { opacity: .65; font-size: .8em; font-weight: 500; }
+    progress { width: 100%; margin-top: .8rem; }
   </style>
 </head>
 <body>
-  <h1>Project Adam Capture Uploader <span class="muted">v1.2</span></h1>
-  <p class="muted">Uploads sanitized Project Adam research JSON only. Raw HAR files are never accepted.</p>
+  <h1>Project Adam Capture Uploader <span class="version">v1.1.0</span></h1>
+  <p class="muted">Stores the original sanitized JSON in <code>captures</code>. P7/center derivation payloads are also upserted into their queryable versioned table.</p>
 
   <section id="setup-panel">
-    <strong>Setup required</strong>
-    <p>Edit this HTML file and replace the two placeholders near the top of its script with your Supabase Project URL and publishable key.</p>
+    <strong>Configuration missing</strong>
+    <p>Upload <code>project-adam-config.js</code> beside this HTML file.</p>
   </section>
 
   <section>
-    <h2>Sign in</h2>
+    <h2>1. Sign in</h2>
     <form id="login-form">
       <label for="email">Email</label>
       <input id="email" name="email" type="email" autocomplete="username" required>
@@ -45,50 +47,30 @@
   </section>
 
   <section>
-    <h2>Upload capture</h2>
+    <h2>2. Upload JSON</h2>
     <form id="upload-form">
-      <label for="capture-file">Sanitized research JSON</label>
+      <label for="capture-file">Sanitized Project Adam JSON</label>
       <input id="capture-file" type="file" accept="application/json,.json" required disabled>
       <div><button id="upload-button" type="submit" disabled>Validate and upload</button></div>
     </form>
+    <progress id="progress" value="0" max="1" hidden></progress>
     <p id="upload-status" aria-live="polite">Sign in first.</p>
     <details>
       <summary>Accepted record collections</summary>
-      <p class="muted">Sanitized HAR-scraper captures; full official character catalogs; individual JSON maps extracted from the official map-catalog ZIP; map anchors; constellation observations; concept measurements; and projected Fate/P7 records. Oversized map files are automatically stored as reconstructable 5,000-point chunks.</p>
+      <p class="muted">Map data, official character data, constellation observations, concept measurements, Fate/P7 projections, and versioned constellation geometry derivations.</p>
     </details>
-  </section>
-
-  <section>
-    <h2>Your captures</h2>
-    <button id="refresh-button" type="button" disabled>Refresh</button>
-    <ol id="captures"><li class="muted">Sign in to load captures.</li></ol>
   </section>
 
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+    import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./project-adam-config.js";
 
-    // These two browser-facing values are designed to be public.
-    // Never place a secret key, service_role key, or database password here.
-    const SUPABASE_URL = "https://uzmlbhppnmonxlzdinik.supabase.co";
-    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_4p_0JKQvmGYYRojxu9IXjQ_B47cx8xc";
-
-    const configured =
-      /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(SUPABASE_URL) &&
-      !SUPABASE_PUBLISHABLE_KEY.includes("PASTE_");
-
-    const setupPanel = document.querySelector("#setup-panel");
-    const loginForm = document.querySelector("#login-form");
-    const signOutButton = document.querySelector("#sign-out");
-    const authStatus = document.querySelector("#auth-status");
-    const uploadForm = document.querySelector("#upload-form");
-    const fileInput = document.querySelector("#capture-file");
-    const uploadButton = document.querySelector("#upload-button");
-    const uploadStatus = document.querySelector("#upload-status");
-    const refreshButton = document.querySelector("#refresh-button");
-    const captureList = document.querySelector("#captures");
-
-    let supabase = null;
-    const MAP_CHUNK_SIZE = 5000;
+    const VERSION = "1.1.0";
+    const DERIVATION_FORMAT = "project-adam-constellation-geometry-derivations/v1";
+    const DERIVATION_TABLE = "constellation_geometry_derivations";
+    const configured = /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(SUPABASE_URL)
+      && typeof SUPABASE_PUBLISHABLE_KEY === "string"
+      && !SUPABASE_PUBLISHABLE_KEY.includes("PASTE_");
 
     const SUPPORTED_COLLECTIONS = Object.freeze({
       tiles: "tiles",
@@ -98,13 +80,34 @@
       calculator_characters: "calculator characters",
       calculator_skills: "calculator skills",
       canonical_character_records: "canonical characters",
-      records: "catalog records",
-      points: "map points",
-      maps: "map manifest entries",
       constellation_observations: "constellation observations",
       concept_measurements: "concept measurements",
-      fate_projections: "Fate/P7 projections"
+      fate_projections: "Fate/P7 projections",
+      constellation_geometry_derivations: "constellation geometry derivations"
     });
+
+    const DERIVATION_FIELDS = Object.freeze([
+      "measurement_id", "algorithm_version", "payload_version",
+      "source_annotation_version", "source_geometry_version", "source_measurement_updated_at",
+      "fit_scale", "turn_deg_screen", "turn_direction_screen", "fit_rms_px", "fit_rms_over_median",
+      "raw_p7_x_norm", "raw_p7_y_norm", "raw_p7_in_bounds",
+      "phi_p7_x_norm", "phi_p7_y_norm", "phi_p7_in_bounds", "phi_bearing_deg_math",
+      "phi_quadrant_screen", "phi_row", "phi_col",
+      "center_x_norm", "center_y_norm", "center_spread_cells", "center_valid", "center_row", "center_col",
+      "null_rank_of_720", "null_percentile",
+      "transform", "raw_p7", "phi_p7", "great_work_points", "center_details", "null_test"
+    ]);
+
+    const setupPanel = document.querySelector("#setup-panel");
+    const loginForm = document.querySelector("#login-form");
+    const signOutButton = document.querySelector("#sign-out");
+    const authStatus = document.querySelector("#auth-status");
+    const uploadForm = document.querySelector("#upload-form");
+    const fileInput = document.querySelector("#capture-file");
+    const uploadButton = document.querySelector("#upload-button");
+    const uploadStatus = document.querySelector("#upload-status");
+    const progress = document.querySelector("#progress");
+    let supabase = null;
 
     function setStatus(element, message, kind = "") {
       element.textContent = message;
@@ -115,192 +118,117 @@
       const signedIn = Boolean(user);
       fileInput.disabled = !signedIn;
       uploadButton.disabled = !signedIn;
-      refreshButton.disabled = !signedIn;
       signOutButton.hidden = !signedIn;
       loginForm.querySelector('button[type="submit"]').disabled = signedIn;
       loginForm.email.disabled = signedIn;
       loginForm.password.disabled = signedIn;
       setStatus(authStatus, signedIn ? `Signed in as ${user.email}.` : "Not signed in.", signedIn ? "success" : "");
-      if (!signedIn) {
-        captureList.replaceChildren(Object.assign(document.createElement("li"), {
-          textContent: "Sign in to load captures.",
-          className: "muted"
-        }));
-        setStatus(uploadStatus, "Sign in first.");
+      if (!signedIn) setStatus(uploadStatus, "Sign in first.");
+    }
+
+    function isObject(value) {
+      return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+    }
+
+    function finiteNumber(value, label, { min = -Infinity, max = Infinity } = {}) {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+        throw new Error(`${label} must be a finite number between ${min} and ${max}.`);
       }
     }
 
-    function uniqueInteger(records, field) {
-      const values = [...new Set(records
-        .map(record => record?.[field])
-        .filter(value => value !== null && value !== undefined && value !== "")
-        .map(Number)
-        .filter(Number.isInteger))];
-      return values.length === 1 ? values[0] : null;
+    function nullableCell(value, label) {
+      if (value === null) return;
+      if (!Number.isInteger(value) || value < 1 || value > 12) {
+        throw new Error(`${label} must be null or an integer from 1 through 12.`);
+      }
+    }
+
+    function validateDerivation(record, index) {
+      const at = `constellation_geometry_derivations[${index}]`;
+      if (!isObject(record)) throw new Error(`${at} must be an object.`);
+      if (!Number.isInteger(record.measurement_id) || record.measurement_id < 1) throw new Error(`${at}.measurement_id must be a positive integer.`);
+      for (const field of ["algorithm_version", "payload_version", "source_annotation_version", "source_geometry_version", "source_measurement_updated_at"]) {
+        if (typeof record[field] !== "string" || !record[field].trim()) throw new Error(`${at}.${field} must be a nonempty string.`);
+      }
+      finiteNumber(record.fit_scale, `${at}.fit_scale`, { min: 0 });
+      finiteNumber(record.turn_deg_screen, `${at}.turn_deg_screen`, { min: -180, max: 180 });
+      finiteNumber(record.fit_rms_px, `${at}.fit_rms_px`, { min: 0 });
+      finiteNumber(record.fit_rms_over_median, `${at}.fit_rms_over_median`, { min: 0 });
+      if (!["clockwise", "counterclockwise", "zero"].includes(record.turn_direction_screen)) throw new Error(`${at}.turn_direction_screen is invalid.`);
+      for (const field of ["raw_p7_x_norm", "raw_p7_y_norm", "phi_p7_x_norm", "phi_p7_y_norm"]) finiteNumber(record[field], `${at}.${field}`);
+      for (const field of ["raw_p7_in_bounds", "phi_p7_in_bounds", "center_valid"]) if (typeof record[field] !== "boolean") throw new Error(`${at}.${field} must be boolean.`);
+      if (record.phi_bearing_deg_math !== null) finiteNumber(record.phi_bearing_deg_math, `${at}.phi_bearing_deg_math`, { min: 0, max: 359.999999999999 });
+      if (record.phi_quadrant_screen !== null && !["NE", "NW", "SE", "SW"].includes(record.phi_quadrant_screen)) throw new Error(`${at}.phi_quadrant_screen is invalid.`);
+      for (const field of ["phi_row", "phi_col", "center_row", "center_col"]) nullableCell(record[field], `${at}.${field}`);
+      if ((record.center_x_norm === null) !== (record.center_y_norm === null)) throw new Error(`${at} center coordinates must both be null or both be numbers.`);
+      if (record.center_x_norm !== null) {
+        finiteNumber(record.center_x_norm, `${at}.center_x_norm`);
+        finiteNumber(record.center_y_norm, `${at}.center_y_norm`);
+      }
+      if (record.center_spread_cells !== null) finiteNumber(record.center_spread_cells, `${at}.center_spread_cells`, { min: 0 });
+      if (!Number.isInteger(record.null_rank_of_720) || record.null_rank_of_720 < 1 || record.null_rank_of_720 > 720) throw new Error(`${at}.null_rank_of_720 is invalid.`);
+      finiteNumber(record.null_percentile, `${at}.null_percentile`, { min: 0, max: 1 });
+      for (const field of ["transform", "raw_p7", "phi_p7", "great_work_points", "center_details", "null_test"]) {
+        if (!isObject(record[field])) throw new Error(`${at}.${field} must be an object.`);
+      }
     }
 
     function validatePayload(payload, byteLength) {
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-        throw new Error("The JSON root must be an object.");
-      }
-      if (byteLength < 2 || byteLength > 25 * 1024 * 1024) {
-        throw new Error("The JSON file must be between 2 bytes and 25 MiB.");
-      }
-
-      const declaredFormat = typeof payload.format === "string" ? payload.format.trim() : "";
-      const isMapCatalogFile =
-        Number.isInteger(Number(payload.map_id)) &&
-        typeof payload.name === "string" &&
-        Array.isArray(payload.points);
-
-      if (!declaredFormat && !isMapCatalogFile) {
-        throw new Error("Missing string field: format. Individual official map-catalog JSON files are the only supported exception.");
-      }
-
-      const formatVersion = declaredFormat || "project-adam-official-map-catalog-map/v1";
-
+      if (!isObject(payload)) throw new Error("The JSON root must be an object.");
+      if (typeof payload.format !== "string" || !payload.format.trim()) throw new Error("Missing string field: format.");
+      if (byteLength < 2 || byteLength > 5 * 1024 * 1024) throw new Error("The JSON file must be between 2 bytes and 5 MiB.");
       const present = [];
       for (const [field, label] of Object.entries(SUPPORTED_COLLECTIONS)) {
         if (!(field in payload)) continue;
-        if (!Array.isArray(payload[field])) {
-          throw new Error(`Field ${field} must be an array when present.`);
-        }
+        if (!Array.isArray(payload[field])) throw new Error(`Field ${field} must be an array when present.`);
         present.push({ field, label, count: payload[field].length });
       }
-      if (!present.length) {
-        throw new Error(`No supported record collection found. Expected at least one of: ${Object.keys(SUPPORTED_COLLECTIONS).join(", ")}.`);
+      if (!present.length) throw new Error(`No supported collection found. Expected one of: ${Object.keys(SUPPORTED_COLLECTIONS).join(", ")}.`);
+      if (!present.some(item => item.count > 0)) throw new Error("All supported collections are empty.");
+      if (payload.constellation_geometry_derivations) {
+        if (payload.format !== DERIVATION_FORMAT) throw new Error(`Derivation payload format must be ${DERIVATION_FORMAT}.`);
+        payload.constellation_geometry_derivations.forEach(validateDerivation);
       }
-      if (!present.some(collection => collection.count > 0)) {
-        throw new Error("All supported record collections are empty.");
-      }
-      const primaryRecords =
-        Array.isArray(payload.coordinate_records) ? payload.coordinate_records :
-        Array.isArray(payload.points) ? payload.points :
-        Array.isArray(payload.records) ? payload.records : [];
-
-      return { collections: present, formatVersion, primaryRecords, isMapCatalogFile };
-    }
-
-    function collectionSummary(collections) {
-      return collections
-        .filter(collection => collection.count > 0)
-        .map(collection => `${collection.count} ${collection.label}`)
-        .join(" · ");
+      return present;
     }
 
     async function sha256Hex(bytes) {
       const digest = await crypto.subtle.digest("SHA-256", bytes);
-      return [...new Uint8Array(digest)]
-        .map(byte => byte.toString(16).padStart(2, "0"))
-        .join("");
+      return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
     }
 
-    function captureRow(payload, validation, sourceFilename, hash, byteLength) {
-      const rootMapId = Number(payload.map_id);
-      return {
-        format_version: validation.formatVersion,
-        map_id: Number.isInteger(rootMapId) ? rootMapId : uniqueInteger(validation.primaryRecords, "map_id"),
-        area_id: uniqueInteger(validation.primaryRecords, "area_id"),
-        source_filename: sourceFilename.slice(0, 255),
-        payload,
-        payload_sha256: hash,
-        payload_size_bytes: byteLength
-      };
+    function databaseDerivation(record) {
+      return Object.fromEntries(DERIVATION_FIELDS.map(field => [field, record[field]]));
     }
 
-    function mapChunkPayloads(payload, sourceFilename, sourceHash, sourceByteLength) {
-      if (!Array.isArray(payload.points) || payload.points.length <= MAP_CHUNK_SIZE) return [];
-
-      const { points, ...mapMetadata } = payload;
-      const chunkCount = Math.ceil(points.length / MAP_CHUNK_SIZE);
-      return Array.from({ length: chunkCount }, (_, index) => {
-        const start = index * MAP_CHUNK_SIZE;
-        const end = Math.min(start + MAP_CHUNK_SIZE, points.length);
-        const chunk = {
-          format: "project-adam-official-map-catalog-map-chunk/v1",
-          source_format: "project-adam-official-map-catalog-map/v1",
-          source_filename: sourceFilename,
-          source_file_sha256: sourceHash,
-          source_file_size_bytes: sourceByteLength,
-          map_id: payload.map_id,
-          map_name: payload.name,
-          chunk_index: index + 1,
-          chunk_count: chunkCount,
-          point_start_index: start,
-          point_end_index_exclusive: end,
-          source_point_count: points.length,
-          points: points.slice(start, end)
-        };
-        if (index === 0) chunk.map_metadata = mapMetadata;
-        return chunk;
-      });
-    }
-
-    function chunkFilename(filename, index, count) {
-      const stem = filename.toLowerCase().endsWith(".json") ? filename.slice(0, -5) : filename;
-      const width = String(count).length;
-      return `${stem}.part-${String(index).padStart(width, "0")}-of-${count}.json`;
-    }
-
-    async function loadCaptures() {
-      setStatus(authStatus, authStatus.textContent);
-      const { data, error } = await supabase
-        .from("captures")
-        .select("id, created_at, format_version, map_id, area_id, source_filename, payload_sha256, payload_size_bytes")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        captureList.replaceChildren(Object.assign(document.createElement("li"), {
-          textContent: `Could not load captures: ${error.message}`,
-          className: "error"
-        }));
-        return;
+    async function upsertDerivations(records) {
+      const clean = records.map(databaseDerivation);
+      const batchSize = 50;
+      progress.hidden = false;
+      progress.max = clean.length;
+      progress.value = 0;
+      for (let offset = 0; offset < clean.length; offset += batchSize) {
+        const batch = clean.slice(offset, offset + batchSize);
+        const { error } = await supabase.from(DERIVATION_TABLE).upsert(batch, {
+          onConflict: "measurement_id,algorithm_version"
+        });
+        if (error) throw new Error(`Derived-table upsert failed after ${offset} records: ${error.message}`);
+        progress.value = Math.min(offset + batch.length, clean.length);
       }
-
-      captureList.replaceChildren();
-      if (!data.length) {
-        captureList.append(Object.assign(document.createElement("li"), {
-          textContent: "No captures uploaded yet.",
-          className: "muted"
-        }));
-        return;
-      }
-
-      for (const capture of data) {
-        const item = document.createElement("li");
-        const title = document.createElement("strong");
-        title.textContent = capture.source_filename;
-        const details = document.createElement("div");
-        details.className = "muted";
-        details.textContent = [
-          new Date(capture.created_at).toLocaleString(),
-          `format ${capture.format_version}`,
-          `map ${capture.map_id ?? "mixed/unknown"}`,
-          `area ${capture.area_id ?? "mixed/unknown"}`,
-          `${capture.payload_size_bytes.toLocaleString()} bytes`,
-          `SHA-256 ${capture.payload_sha256.slice(0, 12)}…`
-        ].join(" · ");
-        item.append(title, details);
-        captureList.append(item);
-      }
+      return clean.length;
     }
 
     if (!configured) {
-      setStatus(authStatus, "Add the Project URL and publishable key to the HTML file first.", "error");
+      setStatus(authStatus, "Add project-adam-config.js beside this page first.", "error");
       loginForm.querySelector('button[type="submit"]').disabled = true;
     } else {
       setupPanel.hidden = true;
       supabase = createClient(SUPABASE_URL.replace(/\/$/, ""), SUPABASE_PUBLISHABLE_KEY, {
         auth: { persistSession: true, autoRefreshToken: true }
       });
-
       const { data: { session } } = await supabase.auth.getSession();
       setSignedIn(session?.user ?? null);
-      if (session?.user) await loadCaptures();
-
-      supabase.auth.onAuthStateChange((_event, nextSession) => {
-        setSignedIn(nextSession?.user ?? null);
-      });
+      supabase.auth.onAuthStateChange((_event, nextSession) => setSignedIn(nextSession?.user ?? null));
     }
 
     loginForm.addEventListener("submit", async event => {
@@ -309,8 +237,7 @@
       setStatus(authStatus, "Signing in…");
       const form = new FormData(loginForm);
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: String(form.get("email")),
-        password: String(form.get("password"))
+        email: String(form.get("email")), password: String(form.get("password"))
       });
       loginForm.password.value = "";
       if (error) {
@@ -319,7 +246,6 @@
         return;
       }
       setSignedIn(data.user);
-      await loadCaptures();
     });
 
     signOutButton.addEventListener("click", async () => {
@@ -331,81 +257,49 @@
       event.preventDefault();
       const file = fileInput.files[0];
       if (!file || !supabase) return;
-
       uploadButton.disabled = true;
+      progress.hidden = true;
       setStatus(uploadStatus, "Reading and validating…");
-
       try {
         const bytes = await file.arrayBuffer();
         const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
         let payload;
-        try {
-          payload = JSON.parse(text);
-        } catch {
-          throw new Error("The selected file is not valid JSON.");
-        }
-
+        try { payload = JSON.parse(text); }
+        catch { throw new Error("The selected file is not valid JSON."); }
+        const collections = validatePayload(payload, bytes.byteLength);
         const hash = await sha256Hex(bytes);
-        const validation = validatePayload(payload, bytes.byteLength);
-        const chunks = validation.isMapCatalogFile
-          ? mapChunkPayloads(payload, file.name, hash, bytes.byteLength)
-          : [];
 
-        if (chunks.length) {
-          let uploaded = 0;
-          let alreadyStored = 0;
-          for (let index = 0; index < chunks.length; index += 1) {
-            const chunk = chunks[index];
-            const chunkText = JSON.stringify(chunk);
-            const chunkBytes = new TextEncoder().encode(chunkText);
-            const chunkHash = await sha256Hex(chunkBytes);
-            const chunkValidation = validatePayload(chunk, chunkBytes.byteLength);
-            const row = captureRow(
-              chunk,
-              chunkValidation,
-              chunkFilename(file.name, index + 1, chunks.length),
-              chunkHash,
-              chunkBytes.byteLength
-            );
-
-            setStatus(uploadStatus, `Uploading map chunk ${index + 1} of ${chunks.length}…`);
-            const { error } = await supabase.from("captures").insert(row);
-            if (error?.code === "23505") {
-              alreadyStored += 1;
-              continue;
-            }
-            if (error) {
-              throw new Error(`Map chunk ${index + 1} of ${chunks.length} failed after ${uploaded} new chunk(s): ${error.message}`);
-            }
-            uploaded += 1;
-          }
-
-          fileInput.value = "";
-          const resumeNote = alreadyStored ? `; ${alreadyStored} previously stored chunk(s) skipped` : "";
-          setStatus(uploadStatus, `Map uploaded in ${chunks.length} chunks: ${payload.points.length.toLocaleString()} points (${uploaded} new${resumeNote}).`, "success");
-          await loadCaptures();
-          return;
+        setStatus(uploadStatus, "Storing original capture…");
+        const { error: captureError } = await supabase.from("captures").insert({
+          format_version: payload.format,
+          map_id: null,
+          area_id: null,
+          source_filename: file.name.slice(0, 255),
+          payload,
+          payload_sha256: hash,
+          payload_size_bytes: bytes.byteLength
+        });
+        let captureNote = "original capture stored";
+        if (captureError) {
+          if (captureError.code === "23505") captureNote = "original capture already existed";
+          else throw new Error(`Capture storage failed: ${captureError.message}`);
         }
 
-        const row = captureRow(payload, validation, file.name, hash, bytes.byteLength);
-        setStatus(uploadStatus, "Uploading…");
-        const { error } = await supabase.from("captures").insert(row);
-        if (error) {
-          if (error.code === "23505") throw new Error("This exact capture is already stored (matching SHA-256 hash).");
-          throw new Error(error.message);
+        let derivationCount = 0;
+        if (payload.constellation_geometry_derivations?.length) {
+          setStatus(uploadStatus, "Upserting versioned derivations…");
+          derivationCount = await upsertDerivations(payload.constellation_geometry_derivations);
         }
 
+        const summary = collections.filter(item => item.count).map(item => `${item.count} ${item.label}`).join(" · ");
         fileInput.value = "";
-        setStatus(uploadStatus, `Capture uploaded successfully: ${collectionSummary(validation.collections)}.`, "success");
-        await loadCaptures();
+        setStatus(uploadStatus, `Upload complete (${captureNote}): ${summary}${derivationCount ? `; ${derivationCount} queryable rows upserted` : ""}.`, "success");
       } catch (error) {
         setStatus(uploadStatus, `Upload failed: ${error.message}`, "error");
       } finally {
         uploadButton.disabled = false;
       }
     });
-
-    refreshButton.addEventListener("click", loadCaptures);
   </script>
 </body>
 </html>
