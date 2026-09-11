@@ -121,7 +121,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "../project-adam-config.js";
 
-const TOOL_VERSION='4.4.0';
+const TOOL_VERSION='4.5.0';
 
 const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
 
@@ -310,7 +310,7 @@ $('importJsonFile').onchange=async event=>{
  finally{event.target.value=''}
 };
 
-/* Constellation reconstruction extension v4.4.0 */
+/* Constellation reconstruction extension v4.5.0 */
 
 {
 
@@ -350,7 +350,7 @@ async function loadRecordedTopology(expectedModel){
  paint();
 }
 
-const MODEL_VERSION='available-observation-fixed-offset/v2';
+const MODEL_VERSION='joint-overview-fixed-offset/v3';
 
 const originalExport=exportData;
 
@@ -539,13 +539,12 @@ panel.innerHTML=`
 
  <p class="geo-note">
 
- The solver prefers adjacent reciprocal observations, then adds other visible
-
- stars only when they increase the independent rank. Unused observations are
-
- held out for reprojection validation. It refuses to invent missing depth when
-
- the available graph is underdetermined.
+ With four or more overview points, the solver jointly fits available zoom sightings
+ and the overview as a perspective camera with the same FOV and parallel axes.
+ It estimates the overview camera translation and crop offset. All those points
+ are used in the fit, so their residuals are not independent validation.
+ If the overview camera cannot be determined, a complete zoom-only solution is
+ used and the reason is shown. Underdetermined reconstructions are refused.
 
  </p>
 
@@ -553,9 +552,7 @@ panel.innerHTML=`
 
  Top view restores the overview axis orientation and fits the model.
 
- Overview measurements displays the original 2D points; it is not a fitted
-
- reconstruction of the game's overview camera.
+ Overview measurements compares recorded points with fitted predictions when the overview is used.
 
  </p>
 
@@ -727,6 +724,60 @@ function availableObservations(payload,f){
  return out;
 }
 
+// Small dense solver; damping is used only during optimization, never as a depth prior.
+function denseSolve(A,b){
+ A=A.map(r=>r.slice());b=b.slice();const n=b.length;
+ for(let c=0;c<n;c++){let p=c;for(let r=c+1;r<n;r++)if(Math.abs(A[r][c])>Math.abs(A[p][c]))p=r;
+  if(Math.abs(A[p][c])<1e-18)throw Error('Singular fit');[A[p],A[c]]=[A[c],A[p]];[b[p],b[c]]=[b[c],b[p]];
+  const d=A[c][c];for(let j=c;j<n;j++)A[c][j]/=d;b[c]/=d;
+  for(let r=0;r<n;r++)if(r!==c){const k=A[r][c];for(let j=c;j<n;j++)A[r][j]-=k*A[c][j];b[r]-=k*b[c]}
+ }return b;
+}
+function fitNormal(J,r,lambda){
+ const n=J[0].length,A=Array.from({length:n},()=>Array(n).fill(0)),b=Array(n).fill(0);
+ J.forEach((row,k)=>{for(let i=0;i<n;i++){b[i]-=row[i]*r[k];for(let j=0;j<n;j++)A[i][j]+=row[i]*row[j]}});
+ for(let i=0;i<n;i++)A[i][i]+=lambda*Math.max(A[i][i],1e-8);
+ return denseSolve(A,b);
+}
+function numericalJacobian(fn,q,r){
+ const J=r.map(()=>Array(q.length));
+ for(let j=0;j<q.length;j++){const h=1e-6*Math.max(1,Math.abs(q[j])),v=q.slice();v[j]+=h;const s=fn(v);for(let i=0;i<r.length;i++)J[i][j]=(s[i]-r[i])/h}return J;
+}
+function optimizePerspective(fn,initial){
+ let q=initial.slice(),r=fn(q),cost=dot(r,r),lambda=1e-3;
+ for(let iter=0;iter<350;iter++){
+  const J=numericalJacobian(fn,q,r);let step;try{step=fitNormal(J,r,lambda)}catch{lambda*=10;continue}
+  const next=q.map((v,i)=>v+step[i]),nr=fn(next),nc=dot(nr,nr);
+  if(Number.isFinite(nc)&&nc<cost){const gain=cost-nc;q=next;r=nr;cost=nc;lambda=Math.max(1e-12,lambda/3);if(gain<1e-14||norm(step)<1e-9)break}
+  else{lambda*=10;if(lambda>1e14)break}
+ }
+ return {q,cost,J:numericalJacobian(fn,q,r)};
+}
+function fitOverview(payload,observations,f){
+ const flat=NAMES.map((name,i)=>({i,p:payload.views?.flat?.points?.[name]})).filter(x=>Number.isFinite(x.p?.x)&&Number.isFinite(x.p?.y));
+ if(flat.length<4)throw Error('At least four overview points are needed for a joint camera fit.');
+ if(observations.length*2+flat.length*2<20)throw Error('Too few observations to determine the joint 3D and overview camera fit.');
+ const rows=observations.flatMap(x=>x.rows),values=observations.flatMap(x=>[x.u,x.v]);
+ const seed=fitNormal(rows,values.map(v=>-v),1e-7);
+ const unpack=q=>[[0,0,0],...Array.from({length:5},(_,i)=>q.slice(i*3,i*3+3))];
+ const project=(q,P,i)=>[q[18]+(P[i][0]-q[15])/(q[17]-P[i][2]),q[19]+(P[i][1]-q[16])/(q[17]-P[i][2])];
+ const fn=q=>{const P=unpack(q),r=[];
+  if(P.some(p=>q[17]-p[2]<=1e-5)||observations.some(x=>1-P[x.j][2]+P[x.i][2]<=1e-5))return Array(2*(observations.length+flat.length)).fill(1e8);
+  for(const x of observations){const d=sub(P[x.j],P[x.i]);r.push(d[0]/(1-d[2])-x.u,d[1]/(1-d[2])-x.v)}
+  for(const {i,p} of flat){const a=project(q,P,i);r.push(a[0]-p.x/f,a[1]+p.y/f)}return r;
+ };
+ let best=null;
+ for(const distance of [1.5,2.5,4]){
+  const q=[...seed,0,0,Math.max(...unpack(seed).map(p=>p[2]))+distance,flat.reduce((s,x)=>s+x.p.x/f,0)/flat.length,-flat.reduce((s,x)=>s+x.p.y/f,0)/flat.length];
+  const fit=optimizePerspective(fn,q);if(!best||fit.cost<best.cost)best=fit;
+ }
+ const scales=best.q.map((_,j)=>Math.hypot(...best.J.map(r=>r[j]))||1);
+ const rank=matrixRank(best.J.map(r=>r.map((v,j)=>v/scales[j])),1e-6);
+ if(rank<20||!Number.isFinite(best.cost)||best.cost>=1e15)throw Error(`Joint overview fit is underdetermined (${rank}/20); more independent sightings are needed.`);
+ const points=unpack(best.q),q=best.q;
+ return {points,rank,observationCount:flat.length,camera:{translation:[q[15],q[16],q[17]],principalPointPx:{x:q[18]*f,y:-q[19]*f}},checks:flat.map(({i,p})=>{const a=project(q,points,i),predicted={x:a[0]*f,y:-a[1]*f};return {view:'flat',star:NAMES[i],main:'Overview',kind:'construction',measured:{...p},predicted,errorPx:Math.hypot(predicted.x-p.x,predicted.y-p.y),behindCamera:false}})};
+}
+
 function reconstruct(payload,o){
  const f=focal(o),observations=availableObservations(payload,f);
  const pairs=new Set(observations.map(x=>`${x.i},${x.j}`));
@@ -734,9 +785,11 @@ function reconstruct(payload,o){
  observations.sort((a,b)=>a.priority-b.priority||a.i-b.i||a.j-b.j);
  let constructionRows=[],construction=[],rank=0;
  for(const obs of observations){const candidate=constructionRows.concat(obs.rows),nextRank=matrixRank(candidate);if(nextRank>rank){construction.push(obs);constructionRows=candidate;rank=nextRank}if(rank===15)break}
- if(rank<15){const usableViews=new Set(observations.map(x=>x.id)).size;throw Error(`Available points give rank ${rank}/15 from ${observations.length} sighting(s) in ${usableViews} selected-star view(s). More overlapping stars are needed; no missing depths were guessed.`)}
- const values=construction.flatMap(x=>[x.u,x.v]),solution=leastSquares(constructionRows,values),points=[[0,0,0]];
- for(let i=1;i<6;i++)points.push(solution.slice((i-1)*3,(i-1)*3+3));
+ const zoomRank=rank;let overview=null,overviewNote='';
+ try{overview=fitOverview(payload,observations,f)}catch(e){overviewNote=e.message;if(rank<15)throw Error(`Zoom views give rank ${rank}/15. ${overviewNote} No missing depths were guessed.`)}
+ let points;
+ if(overview){points=overview.points;construction=observations;rank=15}
+ else{const solution=leastSquares(constructionRows,construction.flatMap(x=>[x.u,x.v]));points=[[0,0,0]];for(let i=1;i<6;i++)points.push(solution.slice((i-1)*3,(i-1)*3+3))}
  const used=new Set(construction.map(x=>`${x.i},${x.j}`)),reciprocal=[];
  for(let i=0;i<5;i++){const a=observations.find(x=>x.i===i&&x.j===i+1),b=observations.find(x=>x.i===i+1&&x.j===i);let disagreement=null;if(a&&b){const av=[a.u,a.v],bv=[b.u,b.v],A=norm(av),B=norm(bv);if(A>.000001&&B>.000001)disagreement=Math.acos(clamp(-dot(av,bv)/(A*B),-1,1))*180/Math.PI}reciprocal.push({from:NAMES[i],to:NAMES[i+1],directionDisagreementDeg:disagreement})}
 
@@ -751,6 +804,7 @@ function reconstruct(payload,o){
  });
 
  const checks=observations.map(obs=>{const d=sub(points[obs.j],points[obs.i]),depth=1-d[2],predicted=depth>0?{x:obs.anchor.x+f*d[0]/depth,y:obs.anchor.y-f*d[1]/depth}:null;return {view:obs.id,star:NAMES[obs.j],main:NAMES[obs.i],kind:used.has(`${obs.i},${obs.j}`)?'construction':'held-out',measured:{x:obs.measured.x,y:obs.measured.y},predicted,errorPx:predicted?Math.hypot(predicted.x-obs.measured.x,predicted.y-obs.measured.y):null,behindCamera:depth<=0}});
+ if(overview)checks.push(...overview.checks);
  const constraintStatus=NAMES.map((name,i)=>{if(i===0)return {star:name,status:'gauge anchor',sightings:observations.filter(x=>x.j===i).length};const sightings=observations.filter(x=>x.j===i).length,direct=EDGES.some(([a,b])=>(a===i||b===i)&&pairs.has(`${a},${b}`)&&pairs.has(`${b},${a}`));return {star:name,status:direct?'direct reciprocal':'indirectly solved',sightings}});
 
  return {
@@ -761,7 +815,8 @@ function reconstruct(payload,o){
 
   reciprocal,reprojection:checks,constraintStatus,
 
-  rank,availableObservationCount:observations.length,constructionObservationCount:construction.length,
+  rank,zoomRank,overviewCamera:overview?.camera||null,jointRank:overview?.rank||null,overviewNote,
+  availableObservationCount:observations.length+(overview?.observationCount||0),constructionObservationCount:construction.length+(overview?.observationCount||0),
 
   camera:{...o,focalLengthPx:f,selectedOffset:1},
 
@@ -821,7 +876,7 @@ function updateButtons(){
 
  for(const id of ['geoTop','geoFit','geoStl'])$(id).disabled=!has;
 
- $('geoOverview').disabled=!has||!NAMES.every(n=>payload?.views?.flat?.points?.[n]);
+ $('geoOverview').disabled=!has||!NAMES.some(n=>payload?.views?.flat?.points?.[n]);
 
  document.querySelectorAll('[data-geo-star]').forEach(b=>{const i=Number(b.dataset.geoStar);b.disabled=!has||!payload?.views?.[`p${i+1}`]?.points?.[NAMES[i]]});
 
@@ -835,9 +890,9 @@ function fitWarningRows(result,threshold){return result.reprojection.filter(r=>r
 function fitThreshold(){const value=Number($('geoFitThreshold').value);return Number.isFinite(value)&&value>0?value:5}
 function renderFitWarnings(){
  const threshold=fitThreshold(),flagged=fitWarningRows(model,threshold),held=model.reprojection.filter(r=>r.kind==='held-out');
- $('geoFitWarnings').innerHTML=flagged.length?`<div style="border:1px solid #e9b44c;border-radius:8px;padding:12px;margin:10px 0;background:#30291a"><b>Double-check ${flagged.length} observation${flagged.length===1?'':'s'}</b><p class="small">These points disagree with the current model. Check the star label, its center, and the main-star center in that view. Edge clipping or camera assumptions can also cause a mismatch. Nothing has been removed.</p><table><thead><tr><th>Selected view</th><th>Check star</th><th>Miss</th><th>Used to fit?</th><th></th></tr></thead><tbody>${flagged.map(r=>`<tr><td>${esc(r.main)}</td><td>${esc(r.star)}</td><td>${r.behindCamera?'Behind camera':fmt(r.errorPx,1)+' px'}</td><td>${r.kind==='construction'?'Yes':'No'}</td><td><button data-inspect-fit="${Number(r.view.slice(1))-1}">Inspect view</button></td></tr>`).join('')}</tbody></table></div>`:`<p class="small">No observation exceeds ${threshold} px.${held.length?'':' No unused sightings are available for an independent check.'}</p>`;
+ $('geoFitWarnings').innerHTML=flagged.length?`<div style="border:1px solid #e9b44c;border-radius:8px;padding:12px;margin:10px 0;background:#30291a"><b>Double-check ${flagged.length} observation${flagged.length===1?'':'s'}</b><p class="small">These points disagree with the current model. Check the star label, its center, and the main-star center in that view. Edge clipping or camera assumptions can also cause a mismatch. Nothing has been removed.</p><table><thead><tr><th>Selected view</th><th>Check star</th><th>Miss</th><th>Used to fit?</th><th></th></tr></thead><tbody>${flagged.map(r=>`<tr><td>${esc(r.main)}</td><td>${esc(r.star)}</td><td>${r.behindCamera?'Behind camera':fmt(r.errorPx,1)+' px'}</td><td>${r.kind==='construction'?'Yes':'No'}</td><td><button data-inspect-fit="${r.view==='flat'?'flat':Number(r.view.slice(1))-1}">Inspect view</button></td></tr>`).join('')}</tbody></table></div>`:`<p class="small">No observation exceeds ${threshold} px.${held.length?'':' No unused sightings are available for an independent check.'}</p>`;
  $('geoFitWarnings').insertAdjacentHTML('beforeend','<p class="geo-note">Warnings compare recorded points with model predictions. A mislabeled point used to build the model can shift the fit and make other points look wrong. A small residual does not guarantee correct labeling.</p>');
- $('geoFitWarnings').querySelectorAll('[data-inspect-fit]').forEach(button=>button.onclick=()=>{const i=Number(button.dataset.inspectFit);selectView(`p${i+1}`);selectedView(i);$('viewTitle').scrollIntoView({behavior:'smooth',block:'start'})});
+ $('geoFitWarnings').querySelectorAll('[data-inspect-fit]').forEach(button=>button.onclick=()=>{const target=button.dataset.inspectFit;if(target==='flat'){selectView('flat');$('geoOverview').click()}else{const i=Number(target);selectView(`p${i+1}`);selectedView(i)};$('viewTitle').scrollIntoView({behavior:'smooth',block:'start'})});
  return flagged.length;
 }
 $('geoLineMode').addEventListener('change',()=>paint());
@@ -884,7 +939,7 @@ function summarize(){
 
  ${bad?`${bad} observation(s) fall behind the assumed camera.`:''}</p>`;
 
- $('geoMetrics').insertAdjacentHTML('beforeend',`<p class="geo-note">Independent rank: ${model.rank}/15. ${model.constructionObservationCount} of ${model.availableObservationCount} sightings used for construction; ${held.length} held out.</p><table><thead><tr><th>Point</th><th>Constraint</th><th>Seen from other centers</th></tr></thead><tbody>${model.constraintStatus.map(x=>`<tr><td>${x.star}</td><td>${x.status}</td><td>${x.sightings}</td></tr>`).join('')}</tbody></table>`);
+ $('geoMetrics').insertAdjacentHTML('beforeend',`<p class="geo-note">${model.jointRank?`Joint rank: ${model.jointRank}/20 (zoom alone: ${model.zoomRank}/15). Overview + zoom fit.`:`Zoom rank: ${model.rank}/15. Overview not used: ${esc(model.overviewNote)}`}  ${model.constructionObservationCount} of ${model.availableObservationCount} observations used for construction; ${held.length} held out.</p><table><thead><tr><th>Point</th><th>Constraint</th><th>Seen from other centers</th></tr></thead><tbody>${model.constraintStatus.map(x=>`<tr><td>${x.star}</td><td>${x.status}</td><td>${x.sightings}</td></tr>`).join('')}</tbody></table>`);
 
  const flaggedCount=renderFitWarnings();
  const directionBad=model.reciprocal.some(r=>Number.isFinite(r.directionDisagreementDeg)&&r.directionDisagreementDeg>3);
@@ -1023,25 +1078,26 @@ function paint(){
 
   const pts=NAMES.map(n=>point(payload,'flat',n));
 
-  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
+  const xs=pts.filter(Boolean).map(p=>p.x),ys=pts.filter(Boolean).map(p=>p.y);
 
   const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
 
   const s=Math.min((cssWidth-60)/Math.max(maxx-minx,1),(cssHeight-60)/Math.max(maxy-miny,1));
 
-  const out=pts.map(p=>[
+  const out=pts.map(p=>p?[
 
    cssWidth/2+(p.x-(minx+maxx)/2)*s,
 
    cssHeight/2+(p.y-(miny+maxy)/2)*s
 
-  ]);
+  ]:null);
 
-  displayEdges().forEach(([i,j])=>line(out[i],out[j],'#69e6df'));
+  displayEdges().forEach(([i,j])=>{if(out[i]&&out[j])line(out[i],out[j],'#69e6df')});
 
-  out.forEach((p,i)=>marker(p,'#69e6df',NAMES[i]));
+  out.forEach((p,i)=>{if(p)marker(p,'#69e6df',NAMES[i])});
 
-  gx.fillStyle='#9eb2c1';gx.fillText('Recorded 2D overview — not a camera fit',15,22);return;
+  if(model.overviewCamera)model.reprojection.filter(r=>r.view==='flat'&&r.predicted).forEach(r=>{const j=NAMES.indexOf(r.star),p=[cssWidth/2+(r.predicted.x-(minx+maxx)/2)*s,cssHeight/2+(r.predicted.y-(miny+maxy)/2)*s];line(out[j],p,'#ffcd68');marker(p,'#ffcd68','',3)});
+  gx.fillStyle='#9eb2c1';gx.fillText(model.overviewCamera?'Overview: cyan = measured, gold = fitted':'Recorded 2D overview — overview not used in fit',15,22);return;
 
  }
 
@@ -1215,7 +1271,7 @@ $('geoTop').onclick=()=>fitView(true);
 
 $('geoFit').onclick=()=>fitView();
 
-$('geoOverview').onclick=()=>{overviewMode=true;$('geoReprojection').replaceChildren();paint()};
+$('geoOverview').onclick=()=>{overviewMode=true;const rows=model.reprojection.filter(r=>r.view==='flat');$('geoReprojection').innerHTML=rows.length?`<p>Overview points used in the joint fit; these are not held-out checks.</p><table><thead><tr><th>Star</th><th>Measured x, y</th><th>Predicted x, y</th><th>Error</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.star}</td><td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td><td>${fmt(r.predicted.x,1)}, ${fmt(r.predicted.y,1)}</td><td>${fmt(r.errorPx,2)} px</td></tr>`).join('')}</tbody></table>`:'';paint()};
 
 document.querySelectorAll('[data-geo-star]').forEach(b=>b.onclick=()=>selectedView(Number(b.dataset.geoStar)));
 
