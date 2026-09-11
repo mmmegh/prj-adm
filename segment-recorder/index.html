@@ -89,6 +89,7 @@ canvas{display:block;max-width:none;cursor:crosshair}.empty{position:absolute;in
       <button id="undo">Undo point</button><button id="clearView" class="danger">Clear view</button>
 
       <button id="copy">Copy JSON</button><button id="downloadJson">Download JSON</button>
+      <button id="importJson">Import JSON</button><input id="importJsonFile" type="file" accept=".json,application/json" hidden>
 
       <button id="downloadCsv">Download CSV</button><button id="clearAll" class="danger">Clear all</button>
 
@@ -120,7 +121,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "../project-adam-config.js";
 
-const TOOL_VERSION='4.2.0';
+const TOOL_VERSION='4.3.0';
 
 const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
 
@@ -230,9 +231,13 @@ function setStatus(id,message,kind=''){const el=$(id);el.textContent=message;el.
 
 function setSignedIn(user){signedInUser=user;const yes=Boolean(user);if(!yes){lastAutoCharacterId=null;loadGeneration++}$('signIn').hidden=yes;$('signOut').hidden=!yes;$('email').disabled=yes;$('password').disabled=yes;$('uploadDb').disabled=!yes;$('loadDb').disabled=!yes;setStatus('authStatus',yes?`Signed in as ${user.email}.`:'Not signed in.',yes?'success':'');setStatus('dbStatus',yes?'Ready to upload or load measurements.':'Sign in to upload or load measurements.');if(yes)loadCharacters();else{characterCatalog=[];$('characterNames').replaceChildren()}}
 
-async function loadCharacters(){const {data,error}=await supabase.from('characters').select('avatar_id,name').order('name');if(error){setStatus('dbStatus',`Could not load characters: ${error.message}`,'error');return}characterCatalog=data||[];$('characterNames').innerHTML=characterCatalog.map(c=>`<option value="${String(c.name).replaceAll('&','&amp;').replaceAll('"','&quot;')}"></option>`).join('');scheduleAutoLoad()}
+function characterLabel(c){const id=String(c.avatar_id);return id==='10000005'?'Traveler (m)':id==='10000007'?'Traveler (f)':c.name}
+function captureStamp(){const {createdAt,character,reconstruction3d,...data}=exportData();return JSON.stringify(data)}
+let savedCaptureStamp=null;
+function hasUnsavedCapture(){return views.some(v=>Object.keys(pointMap(v,state.views[v.id])).length||state.views[v.id].image)&&captureStamp()!==savedCaptureStamp}
+async function loadCharacters(){const {data,error}=await supabase.from('characters').select('avatar_id,name').order('name');if(error){setStatus('dbStatus',`Could not load characters: ${error.message}`,'error');return}characterCatalog=data||[];$('characterNames').innerHTML=characterCatalog.map(c=>`<option value="${String(characterLabel(c)).replaceAll('&','&amp;').replaceAll('"','&quot;')}"></option>`).join('');scheduleAutoLoad()}
 
-function selectedCharacter(){const name=$('character').value.trim().toLocaleLowerCase();const matches=characterCatalog.filter(c=>c.name.trim().toLocaleLowerCase()===name);if(matches.length!==1)throw new Error(matches.length?'Character name is ambiguous.':'Choose an exact character name from the list.');return matches[0]}
+function selectedCharacter(){const name=$('character').value.trim().toLocaleLowerCase();const matches=characterCatalog.filter(c=>characterLabel(c).trim().toLocaleLowerCase()===name);if(matches.length!==1)throw new Error(matches.length||name==='traveler'?'Choose Traveler (f) or Traveler (m).':'Choose an exact character name from the list.');return matches[0]}
 
 function validateUpload(payload){if(!payload.character)throw new Error('Enter the character name.');let count=0;for(const v of views){const got=Object.keys(payload.views[v.id]?.points||{});count+=got.length;const image=payload.views[v.id]?.image;if(got.length&&(!image?.width||!image?.height))throw new Error(`${v.title} has points but no screenshot dimensions.`)}if(!count)throw new Error('Record at least one point before uploading.')}
 
@@ -253,19 +258,32 @@ $('signIn').onclick=async()=>{setStatus('authStatus','Signing in…');const {dat
 
 $('signOut').onclick=async()=>{const {error}=await supabase.auth.signOut();if(error)setStatus('authStatus',`Sign-out failed: ${error.message}`,'error')};
 
-$('uploadDb').onclick=async()=>{if(!signedInUser)return;try{const character=selectedCharacter(),payload=exportData();validateUpload(payload);$('uploadDb').disabled=true;await uploadImages(character,payload);const measurementSha=await sha256(payload);setStatus('dbStatus','Uploading measurement…');const row={owner_id:signedInUser.id,character_id:character.avatar_id,measurement_schema:MEASUREMENT_SCHEMA,tool_version:TOOL_VERSION,camera_calibration:payload.cameraCalibration,payload,measurement_sha256:measurementSha};const {data,error}=await supabase.from('constellation_chain_measurements').upsert(row,{onConflict:'owner_id,character_id'}).select('id,updated_at').single();if(error)throw new Error(error.message);setStatus('dbStatus',`Measurement and images saved at ${new Date(data.updated_at).toLocaleString()}.`,'success')}catch(error){setStatus('dbStatus',`Upload failed: ${error.message}`,'error')}finally{$('uploadDb').disabled=!signedInUser}};
+$('uploadDb').onclick=async()=>{if(!signedInUser)return;try{const character=selectedCharacter(),payload=exportData();validateUpload(payload);$('uploadDb').disabled=true;await uploadImages(character,payload);const measurementSha=await sha256(payload);setStatus('dbStatus','Uploading measurement…');const row={owner_id:signedInUser.id,character_id:character.avatar_id,measurement_schema:MEASUREMENT_SCHEMA,tool_version:TOOL_VERSION,camera_calibration:payload.cameraCalibration,payload,measurement_sha256:measurementSha};const {data,error}=await supabase.from('constellation_chain_measurements').upsert(row,{onConflict:'owner_id,character_id'}).select('id,updated_at').single();if(error)throw new Error(error.message);savedCaptureStamp=captureStamp();lastAutoCharacterId=character.avatar_id;setStatus('dbStatus',`Measurement and images saved at ${new Date(data.updated_at).toLocaleString()}.`,'success')}catch(error){setStatus('dbStatus',`Upload failed: ${error.message}`,'error')}finally{$('uploadDb').disabled=!signedInUser}};
 
 let loadGeneration=0,autoLoadTimer=null,lastAutoCharacterId=null;
 
-async function loadSelectedCharacter({automatic=false}={}){if(!signedInUser)return;const generation=++loadGeneration;try{const character=selectedCharacter();lastAutoCharacterId=character.avatar_id;$('loadDb').disabled=true;setStatus('dbStatus','Loading saved measurement and images…');const {data,error}=await supabase.from('constellation_chain_measurements').select('payload,updated_at').eq('character_id',character.avatar_id).eq('owner_id',signedInUser.id).maybeSingle();if(generation!==loadGeneration)return;if(error)throw new Error(error.message);if(!data){if(automatic){const name=$('character').value;for(const v of views){if(state.views[v.id].imageUrl)URL.revokeObjectURL(state.views[v.id].imageUrl);state.views[v.id]=emptyView()}$('character').value=name;renderAll();setStatus('dbStatus','No saved measurement for this character; ready for a new capture.');return}throw new Error('No segment measurement is saved for this character.')}importData(data.payload);const restored=await restoreImages(data.payload,generation);if(generation===loadGeneration)setStatus('dbStatus',restored?`Loaded measurements and ${restored} source image${restored===1?'':'s'} saved ${new Date(data.updated_at).toLocaleString()}.`:`Loaded measurements saved ${new Date(data.updated_at).toLocaleString()}. This legacy record has no stored source images.`,'success')}catch(error){if(generation===loadGeneration)setStatus('dbStatus',`Load failed: ${error.message}`,'error')}finally{if(generation===loadGeneration)$('loadDb').disabled=!signedInUser}}
+async function loadSelectedCharacter({automatic=false}={}){if(!signedInUser)return;const generation=++loadGeneration;try{const character=selectedCharacter(),startingStamp=captureStamp();lastAutoCharacterId=character.avatar_id;$('loadDb').disabled=true;setStatus('dbStatus','Loading saved measurement and images…');const {data,error}=await supabase.from('constellation_chain_measurements').select('payload,updated_at').eq('character_id',character.avatar_id).eq('owner_id',signedInUser.id).maybeSingle();if(generation!==loadGeneration)return;if(automatic&&captureStamp()!==startingStamp){lastAutoCharacterId=null;setStatus('dbStatus','New edits kept; automatic loading stopped.');return}if(error)throw new Error(error.message);if(!data){if(automatic){const name=$('character').value;for(const v of views){if(state.views[v.id].imageUrl)URL.revokeObjectURL(state.views[v.id].imageUrl);state.views[v.id]=emptyView()}$('character').value=name;renderAll();setStatus('dbStatus','No saved measurement for this character; ready for a new capture.');return}throw new Error('No segment measurement is saved for this character.')}importData({...data.payload,character:characterLabel(character)});const restored=await restoreImages(data.payload,generation);if(generation===loadGeneration){savedCaptureStamp=captureStamp()}if(generation===loadGeneration)setStatus('dbStatus',restored?`Loaded measurements and ${restored} source image${restored===1?'':'s'} saved ${new Date(data.updated_at).toLocaleString()}.`:`Loaded measurements saved ${new Date(data.updated_at).toLocaleString()}. This legacy record has no stored source images.`,'success')}catch(error){if(generation===loadGeneration)setStatus('dbStatus',`Load failed: ${error.message}`,'error')}finally{if(generation===loadGeneration)$('loadDb').disabled=!signedInUser}}
 
-function scheduleAutoLoad(){clearTimeout(autoLoadTimer);autoLoadTimer=setTimeout(()=>{if(!signedInUser)return;let c;try{c=selectedCharacter()}catch{return}if(String(c.avatar_id)===String(lastAutoCharacterId))return;loadSelectedCharacter({automatic:true})},250)}
+function scheduleAutoLoad(){clearTimeout(autoLoadTimer);autoLoadTimer=setTimeout(()=>{if(!signedInUser)return;let c;try{c=selectedCharacter()}catch{return}if(String(c.avatar_id)===String(lastAutoCharacterId))return;if(hasUnsavedCapture()){setStatus('dbStatus','Unsaved measurements kept. Upload to save them under the selected character, or choose Load saved data to replace them.');return}loadSelectedCharacter({automatic:true})},250)}
 
 $('character').addEventListener('input',scheduleAutoLoad);
 $('character').addEventListener('change',scheduleAutoLoad);
 $('loadDb').onclick=()=>loadSelectedCharacter();
+$('importJson').onclick=()=>$('importJsonFile').click();
+$('importJsonFile').onchange=async event=>{
+ const file=event.target.files[0];if(!file)return;
+ try{
+  const payload=JSON.parse(await file.text());
+  if(payload.schema!==MEASUREMENT_SCHEMA||!payload.views)throw Error('Choose a segment-checker measurement JSON file.');
+  if(hasUnsavedCapture()&&!confirm('Replace the current unsaved measurements with this JSON file?'))return;
+  clearTimeout(autoLoadTimer);loadGeneration++;lastAutoCharacterId=null;
+  importData(payload);savedCaptureStamp=null;
+  setStatus('dbStatus','Imported measurements. Select Traveler (f) or (m) if needed. JSON backups contain image metadata only; reload the screenshots to upload them.');
+ }catch(error){setStatus('dbStatus',`Import failed: ${error.message}`,'error')}
+ finally{event.target.value=''}
+};
 
-/* Constellation reconstruction extension v4.2.0 */
+/* Constellation reconstruction extension v4.3.0 */
 
 {
 
@@ -433,6 +451,8 @@ panel.innerHTML=`
 
 <div id="geoStatus" class="small">Record every point that is visible. Calculation will use the available observation graph.</div>
 
+<div class="geo-row"><label class="small">Warn above <input id="geoFitThreshold" type="number" min="0.1" step="0.5" value="5" style="width:75px"> screenshot pixels</label></div>
+<div id="geoFitWarnings" role="status" aria-live="polite"></div>
 <div class="geo-stage"><canvas id="geoCanvas"></canvas></div>
 
 <div id="geoMetrics" class="geo-table"></div>
@@ -714,7 +734,7 @@ function invalidate(){
 
   model=null;overlay=null;overlaySelection='';overlayGeneration++;searchResults=[];searchGeneration++;
 
-  $('geoMetrics').replaceChildren();
+  $('geoMetrics').replaceChildren();$('geoFitWarnings').replaceChildren();
 
   $('geoReprojection').replaceChildren();
 
@@ -750,6 +770,16 @@ function updateButtons(){
 
 }
 
+function fitWarningRows(result,threshold){return result.reprojection.filter(r=>r.behindCamera||Number.isFinite(r.errorPx)&&r.errorPx>threshold).sort((a,b)=>(b.behindCamera?Infinity:b.errorPx)-(a.behindCamera?Infinity:a.errorPx))}
+function fitThreshold(){const value=Number($('geoFitThreshold').value);return Number.isFinite(value)&&value>0?value:5}
+function renderFitWarnings(){
+ const threshold=fitThreshold(),flagged=fitWarningRows(model,threshold),held=model.reprojection.filter(r=>r.kind==='held-out');
+ $('geoFitWarnings').innerHTML=flagged.length?`<div style="border:1px solid #e9b44c;border-radius:8px;padding:12px;margin:10px 0;background:#30291a"><b>Double-check ${flagged.length} observation${flagged.length===1?'':'s'}</b><p class="small">These points disagree with the current model. Check the star label, its center, and the main-star center in that view. Edge clipping or camera assumptions can also cause a mismatch. Nothing has been removed.</p><table><thead><tr><th>Selected view</th><th>Check star</th><th>Miss</th><th>Used to fit?</th><th></th></tr></thead><tbody>${flagged.map(r=>`<tr><td>${esc(r.main)}</td><td>${esc(r.star)}</td><td>${r.behindCamera?'Behind camera':fmt(r.errorPx,1)+' px'}</td><td>${r.kind==='construction'?'Yes':'No'}</td><td><button data-inspect-fit="${Number(r.view.slice(1))-1}">Inspect view</button></td></tr>`).join('')}</tbody></table></div>`:`<p class="small">No observation exceeds ${threshold} px.${held.length?'':' No unused sightings are available for an independent check.'}</p>`;
+ $('geoFitWarnings').insertAdjacentHTML('beforeend','<p class="geo-note">Warnings compare recorded points with model predictions. A mislabeled point used to build the model can shift the fit and make other points look wrong. A small residual does not guarantee correct labeling.</p>');
+ $('geoFitWarnings').querySelectorAll('[data-inspect-fit]').forEach(button=>button.onclick=()=>{const i=Number(button.dataset.inspectFit);selectView(`p${i+1}`);selectedView(i);$('viewTitle').scrollIntoView({behavior:'smooth',block:'start'})});
+ return flagged.length;
+}
+$('geoFitThreshold').addEventListener('input',()=>{if(currentValid())summarize()});
 function summarize(){
 
  const fit=model.reprojection.filter(r=>r.kind==='construction');
@@ -794,17 +824,18 @@ function summarize(){
 
  $('geoMetrics').insertAdjacentHTML('beforeend',`<p class="geo-note">Independent rank: ${model.rank}/15. ${model.constructionObservationCount} of ${model.availableObservationCount} sightings used for construction; ${held.length} held out.</p><table><thead><tr><th>Point</th><th>Constraint</th><th>Seen from other centers</th></tr></thead><tbody>${model.constraintStatus.map(x=>`<tr><td>${x.star}</td><td>${x.status}</td><td>${x.sightings}</td></tr>`).join('')}</tbody></table>`);
 
+ const flaggedCount=renderFitWarnings();
  const directionBad=model.reciprocal.some(r=>Number.isFinite(r.directionDisagreementDeg)&&r.directionDisagreementDeg>3);
 
  setStatus('geoStatus',
 
   `Calculated with ${model.camera.fov}° vertical FOV. `+
 
-  (bad||directionBad?'Inspect the residuals: the camera model or measurements may be inconsistent.':
+  (flaggedCount?`${flaggedCount} observation(s) need review below.`:bad||directionBad?'Inspect the residuals: the camera model or measurements may be inconsistent.':
 
    'Select P1–P6 to inspect measured and predicted points.'),
 
-  bad||directionBad?'error':'success');
+  flaggedCount||bad||directionBad?'error':'success');
 
 }
 
@@ -858,7 +889,7 @@ function selectedView(i){
 
  <th>Predicted x, y</th><th>Error</th></tr></thead><tbody>
 
- ${rows.map(r=>`<tr><td>${r.star}</td><td>${r.kind}</td>
+ ${rows.map(r=>`<tr${r.behindCamera||r.errorPx>fitThreshold()?' style="background:#30291a;color:#ffe2a3"':''}><td>${r.star}</td><td>${r.kind}</td>
 
  <td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td>
 
@@ -1183,6 +1214,9 @@ exportData=function(){
 importData=function(payload){
 
  model=null;overlay=null;overlaySelection='';overlayGeneration++;searchResults=[];searchGeneration++;
+ $('geoFitWarnings').replaceChildren();
+ $('geoMetrics').replaceChildren();
+ $('geoReprojection').replaceChildren();
 
  const o=settingsFor(payload);
 
@@ -1498,7 +1532,7 @@ $('geoSearch').onclick=async()=>{
 
    }
 
-   const name=characterCatalog.find(c=>String(c.avatar_id)===String(row.character_id))?.name||String(row.character_id);
+   const name=characterCatalog.find(c=>String(c.avatar_id)===String(row.character_id))?characterLabel(characterCatalog.find(c=>String(c.avatar_id)===String(row.character_id))):String(row.character_id);
 
    searchResults.push({index:searchResults.length,name,direct,reverse,any,mirror});
 
