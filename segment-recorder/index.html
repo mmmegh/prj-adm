@@ -121,7 +121,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "../project-adam-config.js";
 
-const TOOL_VERSION='4.3.0';
+const TOOL_VERSION='4.3.1';
 
 const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
 
@@ -198,14 +198,41 @@ canvas.onmouseleave=()=>{state.cursor=null;draw()};
 
 canvas.onclick=e=>{const d=current(),v=currentDef();if(!d.image)return;const required=nextRequired(v,d),target=required||state.optionalTarget;if(!target)return;const r=canvas.getBoundingClientRect(),p={x:(e.clientX-r.left)/state.zoom,y:(e.clientY-r.top)/state.zoom};if(required)d.points[v.points.indexOf(target)]=p;else{d.extra[target]=p;state.optionalTarget=null}d.unavailable=d.unavailable.filter(n=>n!==target);d.history.push({name:target,type:'point'});renderAll()};
 
+function chooseImageRecovery(oldWidth,oldHeight,newWidth,newHeight){
+ return new Promise(resolve=>{
+  const dialog=document.createElement('dialog');
+  dialog.style.cssText='max-width:560px;background:#102331;color:#e3f0ff;border:1px solid #658099;border-radius:12px;padding:22px';
+  dialog.innerHTML=`<h3>Keep the recorded points?</h3><p>Measurements use ${oldWidth} × ${oldHeight} pixels. This image is ${newWidth} × ${newHeight} pixels.</p><p>If this is the same full image saved at a different zoom, resize the image back to the measurement dimensions. This preserves the coordinates and camera calibration.</p><p>A different crop cannot be aligned from dimensions alone. Images saved from the checker also contain baked-in markers.</p><div style="display:flex;gap:10px;flex-wrap:wrap"><button data-choice="resize">Resize image; keep points</button><button data-choice="keep">Keep points at their current coordinates</button><button data-choice="clear">Clear points and use new image</button><button data-choice="cancel">Cancel</button></div>`;
+  const finish=value=>{dialog.close();dialog.remove();resolve(value)};
+  dialog.querySelector('[data-choice="resize"]').disabled=!(oldWidth>0&&oldHeight>0);
+  dialog.querySelectorAll('[data-choice]').forEach(b=>b.onclick=()=>finish(b.dataset.choice));
+  dialog.addEventListener('cancel',event=>{event.preventDefault();finish('cancel')});
+  document.body.append(dialog);dialog.showModal();
+ });
+}
 async function setViewImage(blob,fileName,viewId=state.active,storagePath=null){
- const img=new Image(),url=URL.createObjectURL(blob);
+ let img=new Image(),url=URL.createObjectURL(blob);
  await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('The pasted or selected image could not be decoded.'));img.src=url});
  const v=views.find(x=>x.id===viewId),d=state.views[viewId],sameSize=d.width===img.naturalWidth&&d.height===img.naturalHeight,hasCoordinates=Object.keys(pointMap(v,d)).length;
- if(hasCoordinates&&!sameSize&&!confirm('This screenshot has different dimensions. Clear the saved coordinates for this view?')){URL.revokeObjectURL(url);return false}
+ let recovery='keep';
+ if(hasCoordinates&&!sameSize){
+  recovery=await chooseImageRecovery(d.width,d.height,img.naturalWidth,img.naturalHeight);
+  if(recovery==='cancel'){URL.revokeObjectURL(url);return false}
+  if(state.views[viewId]!==d){URL.revokeObjectURL(url);return false}
+  if(recovery==='resize'){
+   const normalized=document.createElement('canvas');normalized.width=d.width;normalized.height=d.height;
+   normalized.getContext('2d').drawImage(img,0,0,d.width,d.height);
+   const resized=await new Promise(resolve=>normalized.toBlob(resolve,'image/png'));
+   if(!resized){URL.revokeObjectURL(url);throw Error('Could not resize this image. Points were kept.')}
+   URL.revokeObjectURL(url);blob=resized;url=URL.createObjectURL(blob);img=new Image();
+   await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('Could not load the resized image.'));img.src=url});
+   fileName=(fileName||'recovered').replace(/\.[^.]+$/,'')+'-restored.png';storagePath=null;
+  }
+ }
+ if(state.views[viewId]!==d){URL.revokeObjectURL(url);return false}
  if(d.imageUrl)URL.revokeObjectURL(d.imageUrl);
  d.image=img;d.imageBlob=blob;d.imageUrl=url;d.fileName=fileName||`pasted-${viewId}.png`;d.mimeType=blob.type||'image/png';d.storagePath=storagePath;
- if(!sameSize&&hasCoordinates){d.points=[];d.extra={};d.unavailable=[];d.history=[]}
+ if(recovery==='clear'){d.points=[];d.extra={};d.unavailable=[];d.history=[]}
  d.width=img.naturalWidth;d.height=img.naturalHeight;state.optionalTarget=null;state.cursor=null;if(viewId===state.active)fitImage();renderAll();return true;
 }
 
@@ -243,7 +270,7 @@ function validateUpload(payload){if(!payload.character)throw new Error('Enter th
 
 async function sha256(value){const bytes=new TextEncoder().encode(JSON.stringify(value));return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('')}
 
-function importData(payload){if(!payload||typeof payload!=='object'||!payload.views)throw new Error('The saved payload is invalid.');$('character').value=payload.character||'';for(const v of views){const src=payload.views[v.id]||{},old=state.views[v.id],d=emptyView(),points=src.points||{};if(old.imageUrl)URL.revokeObjectURL(old.imageUrl);d.fileName=src.image?.fileName||'';d.width=Number(src.image?.width)||0;d.height=Number(src.image?.height)||0;d.storagePath=src.image?.storagePath||null;d.mimeType=src.image?.mimeType||null;d.unavailable=Array.isArray(src.unavailablePoints)?src.unavailablePoints.filter(n=>v.points.includes(n)):[];d.points=v.points.map(n=>points[n]?{x:Number(points[n].x),y:Number(points[n].y)}:null);d.extra=Object.fromEntries(Object.entries(points).filter(([n])=>!v.points.includes(n)).map(([n,p])=>[n,{x:Number(p.x),y:Number(p.y)}]));d.history=[...v.points.filter(n=>points[n]).map(name=>({name,type:'point'})),...d.unavailable.map(name=>({name,type:'unavailable'})),...Object.keys(d.extra).map(name=>({name,type:'point'}))];state.views[v.id]=d}state.active='flat';state.zoom=1;state.optionalTarget=null;state.cursor=null;renderAll()}
+function importData(payload,{preserveImages=false}={}){if(!payload||typeof payload!=='object'||!payload.views)throw new Error('The saved payload is invalid.');$('character').value=payload.character||'';for(const v of views){const src=payload.views[v.id]||{},old=state.views[v.id],d=emptyView(),points=src.points||{};const retain=preserveImages&&old.image&&old.width===Number(src.image?.width)&&old.height===Number(src.image?.height);if(old.imageUrl&&!retain)URL.revokeObjectURL(old.imageUrl);d.fileName=src.image?.fileName||'';d.width=Number(src.image?.width)||0;d.height=Number(src.image?.height)||0;d.storagePath=src.image?.storagePath||null;d.mimeType=src.image?.mimeType||null;d.unavailable=Array.isArray(src.unavailablePoints)?src.unavailablePoints.filter(n=>v.points.includes(n)):[];d.points=v.points.map(n=>points[n]?{x:Number(points[n].x),y:Number(points[n].y)}:null);d.extra=Object.fromEntries(Object.entries(points).filter(([n])=>!v.points.includes(n)).map(([n,p])=>[n,{x:Number(p.x),y:Number(p.y)}]));if(retain){d.image=old.image;d.imageBlob=old.imageBlob;d.imageUrl=old.imageUrl;d.mimeType=old.mimeType;d.fileName=old.fileName;d.storagePath=old.storagePath}d.history=[...v.points.filter(n=>points[n]).map(name=>({name,type:'point'})),...d.unavailable.map(name=>({name,type:'unavailable'})),...Object.keys(d.extra).map(name=>({name,type:'point'}))];state.views[v.id]=d}state.active='flat';state.zoom=1;state.optionalTarget=null;state.cursor=null;renderAll()}
 
 async function uploadImages(character,payload){
  for(const v of views){const d=state.views[v.id];if(!d.imageBlob||d.storagePath)continue;setStatus('dbStatus',`Uploading ${v.title} image…`);const path=`${signedInUser.id}/${character.avatar_id}/${v.id}`;const {error}=await supabase.storage.from(IMAGE_BUCKET).upload(path,d.imageBlob,{upsert:true,contentType:d.mimeType||d.imageBlob.type||'application/octet-stream'});if(error)throw Error(`Image upload failed for ${v.title}: ${error.message}. Run schema v2.5 if the image bucket is not installed.`);d.storagePath=path;payload.views[v.id].image.storagePath=path}
@@ -277,13 +304,13 @@ $('importJsonFile').onchange=async event=>{
   if(payload.schema!==MEASUREMENT_SCHEMA||!payload.views)throw Error('Choose a segment-checker measurement JSON file.');
   if(hasUnsavedCapture()&&!confirm('Replace the current unsaved measurements with this JSON file?'))return;
   clearTimeout(autoLoadTimer);loadGeneration++;lastAutoCharacterId=null;
-  importData(payload);savedCaptureStamp=null;
-  setStatus('dbStatus','Imported measurements. Select Traveler (f) or (m) if needed. JSON backups contain image metadata only; reload the screenshots to upload them.');
+  importData(payload,{preserveImages:true});savedCaptureStamp=null;
+  setStatus('dbStatus','Imported measurements. Existing images with matching view dimensions were retained; verify they belong to this capture. Attach missing screenshots, then select Traveler (f) or (m) if needed.');
  }catch(error){setStatus('dbStatus',`Import failed: ${error.message}`,'error')}
  finally{event.target.value=''}
 };
 
-/* Constellation reconstruction extension v4.3.0 */
+/* Constellation reconstruction extension v4.3.1 */
 
 {
 
@@ -1211,7 +1238,7 @@ exportData=function(){
 
 };
 
-importData=function(payload){
+importData=function(payload,importOptions={}){
 
  model=null;overlay=null;overlaySelection='';overlayGeneration++;searchResults=[];searchGeneration++;
  $('geoFitWarnings').replaceChildren();
@@ -1226,7 +1253,7 @@ importData=function(payload){
 
  $('geoFov').value=o?.fov||32.5;
 
- originalImport(payload);cameraChanged();
+ originalImport(payload,importOptions);cameraChanged();
 
  if(!o)setStatus('geoStatus',
 
