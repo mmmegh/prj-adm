@@ -121,7 +121,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "../project-adam-config.js";
 
-const TOOL_VERSION='4.3.1';
+const TOOL_VERSION='4.4.0';
 
 const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
 
@@ -310,13 +310,45 @@ $('importJsonFile').onchange=async event=>{
  finally{event.target.value=''}
 };
 
-/* Constellation reconstruction extension v4.3.1 */
+/* Constellation reconstruction extension v4.4.0 */
 
 {
 
 const NAMES=['P1','P2','P3','P4','P5','P6'];
 
 const EDGES=[[0,1],[1,2],[2,3],[3,4],[4,5]];
+let recordedTopology=null;
+function normalizeRecordedEdges(edges){
+ if(!Array.isArray(edges))return null;
+ const out=[],seen=new Set();
+ for(const edge of edges){
+  if(!Array.isArray(edge)||edge.length!==2||!edge.every(n=>Number.isInteger(n)&&n>=1&&n<=6)||edge[0]===edge[1])return null;
+  const pair=[edge[0]-1,edge[1]-1].sort((a,b)=>a-b),key=pair.join(',');
+  if(!seen.has(key)){seen.add(key);out.push(pair)}
+ }
+ return out;
+}
+function displayEdges(){return $('geoLineMode').value==='recorded'&&recordedTopology?normalizeRecordedEdges(recordedTopology.displayed_edges):EDGES}
+async function loadRecordedTopology(expectedModel){
+ let character;
+ try{character=selectedCharacter()}catch{}
+ const existing=recordedTopology;
+ const compatible=existing&&normalizeRecordedEdges(existing.displayed_edges)!==null&&(character?String(existing.character_id)===String(character.avatar_id):existing.character===$('character').value.trim());
+ if(!compatible)recordedTopology=null;
+ $('geoLineMode').value='recorded';
+ if(!signedInUser||!character){$('geoLineStatus').textContent=recordedTopology?'Using recorded connections from the imported JSON.':'No recorded connections loaded; showing click order. Sign in and select a character to retrieve them.';paint();return}
+ const owner=signedInUser.id,characterId=String(character.avatar_id);
+ $('geoLineStatus').textContent='Loading recorded connections…';
+ paint();
+ try{
+  const {data,error}=await supabase.from('constellation_measurements').select('id,character_id,displayed_edges,line_fit_class,updated_at').eq('character_id',character.avatar_id).eq('owner_id',owner).order('updated_at',{ascending:false}).order('id',{ascending:false}).limit(1).maybeSingle();
+  if(model!==expectedModel||!currentValid()||signedInUser?.id!==owner||String(selectedCharacter().avatar_id)!==characterId)return;
+  if(error)throw Error(error.message);
+  if(!data||normalizeRecordedEdges(data.displayed_edges)===null){recordedTopology=null;$('geoLineStatus').textContent='No usable recorded connections in the latest saved record; showing click order.'}
+  else{recordedTopology={...data,character:characterLabel(character)};$('geoLineStatus').textContent=`Recorded connections: ${normalizeRecordedEdges(data.displayed_edges).length} lines from record ${data.id}${data.line_fit_class==='uncertain'?' (marked uncertain)':''}. Segment-length tables remain in P1–P6 order.`}
+ }catch(error){if(model!==expectedModel||!currentValid())return;$('geoLineStatus').textContent=`Connection lookup failed: ${error.message}. ${recordedTopology?'Keeping imported connections.':'Showing click order.'}`}
+ paint();
+}
 
 const MODEL_VERSION='available-observation-fixed-offset/v2';
 
@@ -480,6 +512,8 @@ panel.innerHTML=`
 
 <div class="geo-row"><label class="small">Warn above <input id="geoFitThreshold" type="number" min="0.1" step="0.5" value="5" style="width:75px"> screenshot pixels</label></div>
 <div id="geoFitWarnings" role="status" aria-live="polite"></div>
+<div class="geo-row"><label>Display lines <select id="geoLineMode"><option value="recorded">Recorded connections</option><option value="click">Click order (P1–P6)</option></select></label></div>
+<p id="geoLineStatus" class="small">Recorded connections load when you calculate. Missing records use a labeled click-order fallback.</p>
 <div class="geo-stage"><canvas id="geoCanvas"></canvas></div>
 
 <div id="geoMetrics" class="geo-table"></div>
@@ -581,7 +615,7 @@ panel.innerHTML=`
 
 <div class="geo-note">
 
- STL exports the P1–P6 activation chain as a merged ball-and-bar surface,
+ STL exports the selected display connections as a merged ball-and-bar surface,
 
  in conventional millimetre coordinates. It excludes comparison overlays.
 
@@ -806,6 +840,7 @@ function renderFitWarnings(){
  $('geoFitWarnings').querySelectorAll('[data-inspect-fit]').forEach(button=>button.onclick=()=>{const i=Number(button.dataset.inspectFit);selectView(`p${i+1}`);selectedView(i);$('viewTitle').scrollIntoView({behavior:'smooth',block:'start'})});
  return flagged.length;
 }
+$('geoLineMode').addEventListener('change',()=>paint());
 $('geoFitThreshold').addEventListener('input',()=>{if(currentValid())summarize()});
 function summarize(){
 
@@ -1002,7 +1037,7 @@ function paint(){
 
   ]);
 
-  EDGES.forEach(([i,j])=>line(out[i],out[j],'#69e6df'));
+  displayEdges().forEach(([i,j])=>line(out[i],out[j],'#69e6df'));
 
   out.forEach((p,i)=>marker(p,'#69e6df',NAMES[i]));
 
@@ -1038,7 +1073,7 @@ function paint(){
 
   gx.save();gx.beginPath();gx.rect(ox,oy,w*scale,h*scale);gx.clip();
 
-  EDGES.forEach(([a,b])=>{if(projected[a]&&projected[b])line(projected[a],projected[b],'#ffd66b88')});
+  displayEdges().forEach(([a,b])=>{if(projected[a]&&projected[b])line(projected[a],projected[b],'#ffd66b88')});
 
   model.reprojection.filter(r=>r.view===id).forEach(r=>{
 
@@ -1084,7 +1119,7 @@ function paint(){
 
  const p=model.points.map(project);
 
- EDGES.forEach(([i,j])=>{if(p[i]&&p[j])line(p[i],p[j],'#69e6df',3)});
+ displayEdges().forEach(([i,j])=>{if(p[i]&&p[j])line(p[i],p[j],'#69e6df',3)});
 
  p.forEach((v,i)=>{if(v){marker(v,'#ffd66b',NAMES[i],6);screenStars.push({i,p:v})}});
 
@@ -1170,7 +1205,7 @@ $('geoCalculate').onclick=()=>{
 
   searchResults=[];searchGeneration++;$('geoMatches').replaceChildren();
 
-  summarize();fitView(true);updateButtons();
+  summarize();fitView(true);updateButtons();loadRecordedTopology(model);
 
  }catch(e){setStatus('geoStatus',e.message,'error')}
 
@@ -1232,6 +1267,7 @@ exportData=function(){
 
  };
 
+ if(currentValid()&&recordedTopology)out.recordedTopology=JSON.parse(JSON.stringify(recordedTopology));
  if(currentValid())out.reconstruction3d=JSON.parse(JSON.stringify(model));
 
  return out;
@@ -1253,6 +1289,8 @@ importData=function(payload,importOptions={}){
 
  $('geoFov').value=o?.fov||32.5;
 
+ recordedTopology=payload.recordedTopology&&normalizeRecordedEdges(payload.recordedTopology.displayed_edges)!==null?payload.recordedTopology:null;
+ $('geoLineStatus').textContent='Calculate to load recorded connections.';
  originalImport(payload,importOptions);cameraChanged();
 
  if(!o)setStatus('geoStatus',
@@ -1403,9 +1441,7 @@ function renderMatches(){
 
  Arbitrary and mirrored searches test all 720 labelings; these are exploratory
 
- fits, not significance scores. Visible-edge topology was not recorded by
-
- this checker and is not tested.
+ fits, not significance scores. Recorded connections are used for the main display and STL. Shape matching does not test topology; comparison overlays retain their click-order connections.
 
  </p>
 
@@ -1634,6 +1670,7 @@ $('geoStl').onclick=async()=>{
   if(count>2500000)throw Error('Mesh is too large; reduce detail.');
 
   const values=new Float32Array(count);
+  const meshEdges=displayEdges().map(edge=>edge.slice());
 
   const index=(x,y,z)=>(x*(ny+1)+y)*(nz+1)+z;
 
@@ -1641,7 +1678,7 @@ $('geoStl').onclick=async()=>{
 
    let d=Math.min(...pts.map(q=>norm(sub(p,q))-rb));
 
-   for(const [i,j] of EDGES){
+   for(const [i,j] of meshEdges){
 
     const a=pts[i],v=sub(pts[j],a);
 
