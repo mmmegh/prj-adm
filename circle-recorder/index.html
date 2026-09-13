@@ -1,0 +1,32 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Project Adam · Circle measurements</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#09151e;color:#dbeaf4;font:14px/1.45 system-ui}header{padding:14px 20px;border-bottom:1px solid #314653}h1{font-size:20px;margin:0}main{display:grid;grid-template-columns:320px minmax(0,1fr);gap:14px;padding:14px;align-items:start}aside,.viewer{background:#10222e;border:1px solid #304b5c;border-radius:10px;padding:14px}label{display:block;margin:9px 0 4px}input:not([type=checkbox]),select,textarea{width:100%;padding:8px;color:inherit;background:#091923;border:1px solid #466275;border-radius:5px}input[type=checkbox]{margin-right:7px}button,.file{cursor:pointer;color:inherit;background:#1a394c;border:1px solid #486c80;padding:8px 10px;border-radius:5px;display:inline-block}button:hover,.file:hover{background:#295268}button:disabled{opacity:.45;cursor:default}.primary{background:#12686d}.row{display:flex;gap:7px;flex-wrap:wrap;margin:8px 0}.row>*{flex:1}small,.hint{color:#adc6d5}#status{white-space:pre-wrap;padding:9px 0;color:#ffe0a1;min-height:32px}#stage{height:64vh;min-height:400px;background:#030a10;position:relative;overflow:hidden;border:1px solid #304b5c;touch-action:none}canvas{width:100%;height:100%;display:block}table{width:100%;border-collapse:collapse;font-size:12px;margin-top:12px}td,th{text-align:left;padding:7px;border-bottom:1px solid #304b5c}.scroll{overflow:auto}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}details{margin:14px 0}summary{cursor:pointer}#circleFields{display:grid;grid-template-columns:1fr 1fr;gap:8px}#circleFields label{margin:0}.wide{grid-column:span 2}.file input{display:none}@media(max-width:750px){main{grid-template-columns:1fr}#stage{height:60vh}}kbd{background:#233f50;padding:1px 4px}
+</style>
+<header><h1>Circle measurements</h1><small>Ratio sets · original-image pixels · v1.0.0</small></header>
+<main><aside>
+<label>Measurement name<input id="name" placeholder="Spring Fairy pool — reference view"></label>
+<div class="row"><button id="new">New measurement</button><button id="download">Save JSON + image</button></div>
+<label class="file">Import saved JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
+<label>Circle set<select id="sets"></select></label>
+<div class="row"><button id="add" class="primary">Add set</button><button id="duplicate">Duplicate</button><button id="remove">Remove</button></div>
+<div id="editor">
+<label>Set name<input id="setName"></label>
+<label>Ratio preset<select id="preset"></select></label>
+<p class="hint">The largest circle is the parent. Switching presets preserves its center and diameter. Each circle can be positioned independently.</p>
+<label>Selected circle<select id="circle"><option value="0">Small circle</option><option value="1">Middle circle</option><option value="2">Parent circle</option></select></label>
+<div id="circleFields"><label>Center X (px)<input id="cx" type="number" step="0.1"></label><label>Center Y (px)<input id="cy" type="number" step="0.1"></label><label class="wide">Diameter (px)<input id="diameter" type="number" min="0.01" step="0.1"></label></div>
+<label>Parent diameter / shared scale<input id="scale" type="range" min="1" max="2000" step="0.1"></label>
+<label><input id="whole" type="checkbox">Drag whole set together</label>
+<label><input id="success" type="checkbox">Successful fit</label>
+<label><input id="locked" type="checkbox">Lock set</label>
+<label>Fit notes<textarea id="notes" rows="3" placeholder="What fits, what was inferred, anything uncertain…"></textarea></label>
+</div>
+<div class="row"><button id="undo">Undo</button><button id="csv">Export exact CSV</button></div>
+<details><summary>Database upload / saved measurements</summary>
+<label>Email<input id="email" type="email" autocomplete="username"></label><label>Password<input id="password" type="password" autocomplete="current-password"></label>
+<div class="row"><button id="login">Sign in</button><button id="logout">Sign out</button></div><small id="auth">Not connected. JSON saving works without sign-in.</small>
+<div class="row"><button id="upload" class="primary">Upload measurement</button><button id="refresh">Refresh list</button></div>
+<label>Saved measurements<select id="saved"></select></label><button id="load">Load measurement + image</button>
+</details><div id="status" role="status" aria-live="polite"></div>
+</aside><section class="viewer"><div class="toolbar"><label class="file">Load image<input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp"></label><span>or paste an image</span><button id="fit">Fit image</button><button id="minus">−</button><button id="plus">+</button><button id="png">Export annotated PNG</button></div><div id="stage"><canvas id="canvas"></canvas></div><p class="hint">Drag a center to move a circle; drag its edge to resize the full ratio set. Wheel to zoom. Drag empty space to pan. Arrow keys nudge the selected circle by 1 original pixel; Shift = 10. Editing geometry clears “successful fit” so it can be checked again.</p><small id="imageInfo">No image loaded.</small><div class="scroll"><table><thead><tr><th>Set</th><th>Ratio</th><th>Circle</th><th>X</th><th>Y</th><th>Diameter</th><th>Radius</th><th>Fit</th></tr></thead><tbody id="measurements"></tbody></table></div></section></main>
+<script src="geometry.js"></script><script src="app.js"></script></html>
