@@ -121,7 +121,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "../project-adam-config.js";
 
-const TOOL_VERSION='4.5.1';
+const TOOL_VERSION='4.6.1';
 
 const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
 
@@ -151,9 +151,9 @@ const views=[
 
 ];
 
-function emptyView(){return {points:[],extra:{},unavailable:[],history:[],fileName:'',width:0,height:0,image:null,imageBlob:null,imageUrl:null,storagePath:null,mimeType:null}}
+function emptyView(){return {points:[],extra:{},bearings:{},unavailable:[],history:[],fileName:'',width:0,height:0,image:null,imageBlob:null,imageUrl:null,storagePath:null,mimeType:null}}
 
-const state={active:'flat',zoom:1,optionalTarget:null,cursor:null,views:{}}; for(const v of views)state.views[v.id]=emptyView();
+const state={active:'flat',zoom:1,optionalTarget:null,bearingTarget:null,cursor:null,views:{}}; for(const v of views)state.views[v.id]=emptyView();
 
 const $=id=>document.getElementById(id), canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
 
@@ -169,34 +169,66 @@ function nextRequired(v,d){const m=pointMap(v,d);return v.points.find(n=>!m[n]&&
 
 function allPairs(v,d){const m=pointMap(v,d),names=Object.keys(m).sort((a,b)=>+a.slice(1)-+b.slice(1)),out=[];for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++)out.push({from:names[i],to:names[j],length:dist(m[names[i]],m[names[j]])});return out}
 
+function bearingKey(from,to){return `${from}>${to}`}
+function isAdjacentName(a,b){const x=Number(a?.slice(1)),y=Number(b?.slice(1));return Number.isInteger(x)&&Number.isInteger(y)&&Math.abs(x-y)===1}
+function bearingCandidates(v,d){if(v.id==='flat'||!v.main)return[];const m=pointMap(v,d);if(!m[v.main])return[];return ['P1','P2','P3','P4','P5','P6'].filter(n=>n!==v.main&&!m[n]&&isAdjacentName(v.main,n))}
+function armBearing(target){state.optionalTarget=null;state.bearingTarget=target;renderAll()}
+
 function baselineLength(a,b){const d=state.views.flat,v=views[0],m=pointMap(v,d);return m[a]&&m[b]?dist(m[a],m[b]):null}
 
 function renderList(){ $('viewList').innerHTML=views.map(v=>{const d=state.views[v.id],m=pointMap(v,d),resolved=v.points.filter(n=>m[n]||d.unavailable.includes(n)).length,done=resolved===v.points.length,total=Object.keys(m).length;return `<button class="view-btn ${v.id===state.active?'active':''} ${done?'done':''}" data-id="${v.id}"><span>${v.label.replace('(main)','<span class="main-tag">(main)</span>')}</span><span class="status">${done?total+' stars':resolved+'/'+v.points.length}</span></button>`}).join('');document.querySelectorAll('.view-btn').forEach(b=>b.onclick=()=>selectView(b.dataset.id));}
 
-function selectView(id){state.active=id;state.zoom=1;state.optionalTarget=null;renderAll();fitImage()}
+function selectView(id){state.active=id;state.zoom=1;state.optionalTarget=null;state.bearingTarget=null;renderAll();fitImage()}
 
-function renderAll(){const v=currentDef(),d=current(),m=pointMap(v,d),next=nextRequired(v,d);renderList();$('viewTitle').textContent=`${v.title}: ${v.label}`;if(next){$('instruction').innerHTML=`Click <b>${next}</b>${next===v.main?' (main star)':''}. Required order: <b>${v.label}</b> <button id="markUnavailable">Not visible</button>`;$('markUnavailable').onclick=()=>{d.unavailable.push(next);d.history.push({name:next,type:'unavailable'});renderAll()}}else if(v.id==='flat'){$('instruction').innerHTML=`Available overview points recorded: <b>${Object.keys(m).join(' > ')||'none'}</b>`}else{const missing=['P1','P2','P3','P4','P5','P6'].filter(n=>!m[n]);$('instruction').innerHTML=`Required sequence resolved. Add any other star visible in this window.${missing.length?`<div class="optional-stars">${missing.map(n=>`<button data-star="${n}" class="${state.optionalTarget===n?'armed':''}">${state.optionalTarget===n?'Click '+n+' now':'+ '+n}</button>`).join('')}</div>`:' <b>All six stars recorded.</b>'}`;document.querySelectorAll('[data-star]').forEach(b=>b.onclick=()=>{state.optionalTarget=b.dataset.star;renderAll()})}$('empty').classList.toggle('hidden',!!d.image);draw();renderReadout()}
+function renderAll(){
+ const v=currentDef(),d=current(),m=pointMap(v,d),next=nextRequired(v,d);
+ renderList();$('viewTitle').textContent=`${v.title}: ${v.label}`;
+ if(state.bearingTarget){
+  $('instruction').innerHTML=`<b>Line-direction mode:</b> click once anywhere on the visible line leaving <b>${v.main}</b> toward offscreen <b>${state.bearingTarget}</b>. The recorded ${v.main} center supplies the line origin; only the direction is saved. <button id="cancelBearing">Cancel</button>`;
+  $('cancelBearing').onclick=()=>{state.bearingTarget=null;renderAll()};
+ }else if(next){
+  const canBearing=v.main&&m[v.main]&&isAdjacentName(v.main,next);
+  $('instruction').innerHTML=`Click <b>${next}</b>${next===v.main?' (main star)':''}. Required order: <b>${v.label}</b> <button id="markUnavailable">Not visible</button>${canBearing?` <button id="recordBearing">Line direction only</button>`:''}`;
+  $('markUnavailable').onclick=()=>{d.unavailable.push(next);d.history.push({name:next,type:'unavailable'});renderAll()};
+  if(canBearing)$('recordBearing').onclick=()=>armBearing(next);
+ }else if(v.id==='flat'){
+  $('instruction').innerHTML=`Available overview points recorded: <b>${Object.keys(m).join(' > ')||'none'}</b>`;
+ }else{
+  const missing=['P1','P2','P3','P4','P5','P6'].filter(n=>!m[n]),bearingTargets=bearingCandidates(v,d);
+  $('instruction').innerHTML=`Required sequence resolved. Add any other star visible in this window.${missing.length?`<div class="optional-stars">${missing.map(n=>`<button data-star="${n}" class="${state.optionalTarget===n?'armed':''}">${state.optionalTarget===n?'Click '+n+' now':'+ '+n}</button>`).join('')}</div>`:' <b>All six stars recorded.</b>'}${bearingTargets.length?`<div class="optional-stars">${bearingTargets.map(n=>{const key=bearingKey(v.main,n),saved=d.bearings?.[key];return `<button data-bearing-star="${n}">${saved?'Redo':'Record'} line ${v.main}→${n}</button>${saved?`<button data-clear-bearing="${key}">×</button>`:''}`}).join('')}</div>`:''}`;
+  document.querySelectorAll('[data-star]').forEach(b=>b.onclick=()=>{state.optionalTarget=b.dataset.star;state.bearingTarget=null;renderAll()});
+  document.querySelectorAll('[data-bearing-star]').forEach(b=>b.onclick=()=>armBearing(b.dataset.bearingStar));
+  document.querySelectorAll('[data-clear-bearing]').forEach(b=>b.onclick=()=>{delete d.bearings[b.dataset.clearBearing];renderAll()});
+ }
+ $('empty').classList.toggle('hidden',!!d.image);draw();renderReadout()
+}
 
 function fitImage(){const d=current();if(!d.image)return;state.zoom=Math.min(1,(wrap.clientWidth-4)/d.width,(wrap.clientHeight-4)/d.height);draw()}
 
 function draw(){const d=current(),v=currentDef();if(!d.image){canvas.width=1;canvas.height=1;$('zoomLabel').textContent='';return}canvas.width=Math.round(d.width*state.zoom);canvas.height=Math.round(d.height*state.zoom);ctx.setTransform(state.zoom,0,0,state.zoom,0,0);ctx.drawImage(d.image,0,0);ctx.lineWidth=2/state.zoom;ctx.font=`${15/state.zoom}px system-ui`;ctx.textAlign='left';ctx.textBaseline='middle';
-
- const chain=segmentsFor(v,d);if(chain.length){const m=pointMap(v,d);ctx.strokeStyle='#69e6df';for(const s of chain){ctx.beginPath();ctx.moveTo(m[s.from].x,m[s.from].y);ctx.lineTo(m[s.to].x,m[s.to].y);ctx.stroke()}}
-
- Object.entries(pointMap(v,d)).forEach(([name,p])=>{const isMain=name===v.main;ctx.beginPath();ctx.fillStyle=isMain?'#ffd66b':'#69e6df';ctx.strokeStyle='#07111a';ctx.arc(p.x,p.y,7/state.zoom,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#fff';ctx.strokeStyle='#07111a';ctx.lineWidth=3/state.zoom;ctx.strokeText(name,p.x+11/state.zoom,p.y);ctx.fillText(name,p.x+11/state.zoom,p.y)});
- if(state.cursor){const p=state.cursor,s=11/state.zoom;ctx.save();ctx.lineWidth=1/state.zoom;ctx.strokeStyle='rgba(190,245,255,.23)';ctx.beginPath();ctx.moveTo(0,p.y);ctx.lineTo(d.width,p.y);ctx.moveTo(p.x,0);ctx.lineTo(p.x,d.height);ctx.stroke();ctx.lineWidth=1.5/state.zoom;ctx.strokeStyle='rgba(220,255,255,.78)';ctx.beginPath();ctx.moveTo(p.x-s,p.y);ctx.lineTo(p.x+s,p.y);ctx.moveTo(p.x,p.y-s);ctx.lineTo(p.x,p.y+s);ctx.stroke();ctx.restore()}
- $('zoomLabel').textContent=`${Math.round(state.zoom*100)}% · ${d.width}×${d.height}`}
+ const chain=segmentsFor(v,d);if(chain.length){const m=pointMap(v,d);ctx.strokeStyle='#69e6df';for(const seg of chain){ctx.beginPath();ctx.moveTo(m[seg.from].x,m[seg.from].y);ctx.lineTo(m[seg.to].x,m[seg.to].y);ctx.stroke()}}
+ const m=pointMap(v,d);
+ Object.values(d.bearings||{}).forEach(b=>{const a=m[b.from],q=b.through;if(!a||!q)return;ctx.save();ctx.setLineDash([8/state.zoom,6/state.zoom]);ctx.strokeStyle='#ffcf68';ctx.lineWidth=2/state.zoom;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(q.x,q.y);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#ffcf68';ctx.fillText(`line→${b.to}`,q.x+8/state.zoom,q.y);ctx.restore()});
+ if(state.bearingTarget&&v.main&&m[v.main]&&state.cursor){ctx.save();ctx.setLineDash([8/state.zoom,6/state.zoom]);ctx.strokeStyle='#ffcf68';ctx.beginPath();ctx.moveTo(m[v.main].x,m[v.main].y);ctx.lineTo(state.cursor.x,state.cursor.y);ctx.stroke();ctx.restore()}
+ Object.entries(m).forEach(([name,p])=>{const isMain=name===v.main;ctx.beginPath();ctx.fillStyle=isMain?'#ffd66b':'#69e6df';ctx.strokeStyle='#07111a';ctx.arc(p.x,p.y,7/state.zoom,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#fff';ctx.strokeStyle='#07111a';ctx.lineWidth=3/state.zoom;ctx.strokeText(name,p.x+11/state.zoom,p.y);ctx.fillText(name,p.x+11/state.zoom,p.y)});
+ if(state.cursor){const p=state.cursor,q=11/state.zoom;ctx.save();ctx.lineWidth=1/state.zoom;ctx.strokeStyle='rgba(190,245,255,.23)';ctx.beginPath();ctx.moveTo(0,p.y);ctx.lineTo(d.width,p.y);ctx.moveTo(p.x,0);ctx.lineTo(p.x,d.height);ctx.stroke();ctx.lineWidth=1.5/state.zoom;ctx.strokeStyle='rgba(220,255,255,.78)';ctx.beginPath();ctx.moveTo(p.x-q,p.y);ctx.lineTo(p.x+q,p.y);ctx.moveTo(p.x,p.y-q);ctx.lineTo(p.x,p.y+q);ctx.stroke();ctx.restore()}
+ $('zoomLabel').textContent=`${Math.round(state.zoom*100)}% · ${d.width}×${d.height}`
+}
 
 function renderReadout(){const v=currentDef(),d=current(),segs=segmentsFor(v,d),m=pointMap(v,d);let html='<table><thead><tr><th>Point</th><th>X</th><th>Y</th><th>Role</th></tr></thead><tbody>';['P1','P2','P3','P4','P5','P6'].forEach(name=>{const p=m[name],required=v.points.includes(name);html+=`<tr><td>${name}</td><td>${p?p.x.toFixed(3):'—'}</td><td>${p?p.y.toFixed(3):'—'}</td><td>${name===v.main?'<span class="main-tag">main</span>':required?'chain':p?'extra':''}</td></tr>`});html+='</tbody></table>';
 
  if(segs.length){html+='<table><thead><tr><th>Segment</th><th>This view</th><th>Flat baseline</th><th>Raw / flat</th></tr></thead><tbody>';for(const s of segs){const base=baselineLength(s.from,s.to);html+=`<tr><td>${s.from}>${s.to}</td><td>${s.length.toFixed(3)} px</td><td>${base?base.toFixed(3)+' px':'—'}</td><td>${base?(s.length/base).toFixed(6):'—'}</td></tr>`}html+='</tbody></table>'}
 
- if(segs.length===2){const obs=segs[0].length/segs[1].length,b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to),flat=b1&&b2?b1/b2:null;html+=`<div class="summary">Adjacent ratio in this view: <strong>${obs.toFixed(6)}</strong>${flat?` · flat ratio: <strong>${flat.toFixed(6)}</strong> · ratio-of-ratios: <strong>${(obs/flat).toFixed(6)}</strong>`:''} · ${Object.keys(m).length} total stars, ${allPairs(v,d).length} pairwise distances</div>`} $('readout').innerHTML=html}
+ if(segs.length===2){const obs=segs[0].length/segs[1].length,b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to),flat=b1&&b2?b1/b2:null;html+=`<div class="summary">Adjacent ratio in this view: <strong>${obs.toFixed(6)}</strong>${flat?` · flat ratio: <strong>${flat.toFixed(6)}</strong> · ratio-of-ratios: <strong>${(obs/flat).toFixed(6)}</strong>`:''} · ${Object.keys(m).length} total stars, ${allPairs(v,d).length} pairwise distances</div>`}
+ const bearings=Object.values(d.bearings||{});if(bearings.length){html+='<table><thead><tr><th>Bearing-only constraint</th><th>Direction</th><th>Recorded through</th></tr></thead><tbody>';for(const b of bearings){const a=m[b.from],dx=b.through.x-a.x,dy=-(b.through.y-a.y),ang=(Math.atan2(dy,dx)*180/Math.PI+360)%360;html+=`<tr><td>${b.from}→${b.to}</td><td>${ang.toFixed(2)}°</td><td>${b.through.x.toFixed(2)}, ${b.through.y.toFixed(2)}</td></tr>`}html+='</tbody></table><div class="summary">Bearing-only records constrain projected line direction, not target distance.</div>'}
+ $('readout').innerHTML=html}
 
 canvas.onmousemove=e=>{if(!current().image)return;const r=canvas.getBoundingClientRect();state.cursor={x:(e.clientX-r.left)/state.zoom,y:(e.clientY-r.top)/state.zoom};draw()};
 canvas.onmouseleave=()=>{state.cursor=null;draw()};
 
-canvas.onclick=e=>{const d=current(),v=currentDef();if(!d.image)return;const required=nextRequired(v,d),target=required||state.optionalTarget;if(!target)return;const r=canvas.getBoundingClientRect(),p={x:(e.clientX-r.left)/state.zoom,y:(e.clientY-r.top)/state.zoom};if(required)d.points[v.points.indexOf(target)]=p;else{d.extra[target]=p;state.optionalTarget=null}d.unavailable=d.unavailable.filter(n=>n!==target);d.history.push({name:target,type:'point'});renderAll()};
+canvas.onclick=e=>{const d=current(),v=currentDef();if(!d.image)return;const r=canvas.getBoundingClientRect(),p={x:(e.clientX-r.left)/state.zoom,y:(e.clientY-r.top)/state.zoom};
+ if(state.bearingTarget){const from=v.main,to=state.bearingTarget,m=pointMap(v,d),anchor=m[from];if(!from||!anchor)return;if(dist(anchor,p)<8/state.zoom){$('instruction').insertAdjacentHTML('beforeend',' <b>Choose a point farther along the line.</b>');return}const key=bearingKey(from,to),previous=d.bearings[key]?JSON.parse(JSON.stringify(d.bearings[key])):null,markedUnavailable=v.points.includes(to)&&!m[to]&&!d.unavailable.includes(to);d.bearings[key]={from,to,through:p};if(markedUnavailable)d.unavailable.push(to);d.history.push({name:key,type:'bearing',from,to,previous,markedUnavailable});state.bearingTarget=null;renderAll();return}
+ const required=nextRequired(v,d),target=required||state.optionalTarget;if(!target)return;if(required)d.points[v.points.indexOf(target)]=p;else{d.extra[target]=p;state.optionalTarget=null}d.unavailable=d.unavailable.filter(n=>n!==target);d.history.push({name:target,type:'point'});renderAll()};
 
 function chooseImageRecovery(oldWidth,oldHeight,newWidth,newHeight){
  return new Promise(resolve=>{
@@ -232,27 +264,25 @@ async function setViewImage(blob,fileName,viewId=state.active,storagePath=null){
  if(state.views[viewId]!==d){URL.revokeObjectURL(url);return false}
  if(d.imageUrl)URL.revokeObjectURL(d.imageUrl);
  d.image=img;d.imageBlob=blob;d.imageUrl=url;d.fileName=fileName||`pasted-${viewId}.png`;d.mimeType=blob.type||'image/png';d.storagePath=storagePath;
- if(recovery==='clear'){d.points=[];d.extra={};d.unavailable=[];d.history=[]}
+ if(recovery==='clear'){d.points=[];d.extra={};d.bearings={};d.unavailable=[];d.history=[]}
  d.width=img.naturalWidth;d.height=img.naturalHeight;state.optionalTarget=null;state.cursor=null;if(viewId===state.active)fitImage();renderAll();return true;
 }
 
 $('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{await setViewImage(f,f.name)}catch(error){setStatus('dbStatus',error.message,'error')}finally{e.target.value=''}};
 
-$('undo').onclick=()=>{const d=current(),v=currentDef(),entry=d.history.pop();if(!entry)return;const name=typeof entry==='string'?entry:entry.name,type=typeof entry==='string'?'point':entry.type;if(type==='unavailable')d.unavailable=d.unavailable.filter(n=>n!==name);else if(Object.hasOwn(d.extra,name))delete d.extra[name];else d.points[v.points.indexOf(name)]=null;state.optionalTarget=null;renderAll()};$('clearView').onclick=()=>{const d=current();d.points=[];d.extra={};d.unavailable=[];d.history=[];state.optionalTarget=null;renderAll()};
+$('undo').onclick=()=>{const d=current(),v=currentDef(),entry=d.history.pop();if(!entry)return;const name=typeof entry==='string'?entry:entry.name,type=typeof entry==='string'?'point':entry.type;if(type==='unavailable')d.unavailable=d.unavailable.filter(n=>n!==name);else if(type==='bearing'){if(entry.previous)d.bearings[name]=entry.previous;else delete d.bearings[name];if(entry.markedUnavailable)d.unavailable=d.unavailable.filter(n=>n!==entry.to)}else if(Object.hasOwn(d.extra,name))delete d.extra[name];else d.points[v.points.indexOf(name)]=null;state.optionalTarget=null;state.bearingTarget=null;renderAll()};$('clearView').onclick=()=>{const d=current();d.points=[];d.extra={};d.bearings={};d.unavailable=[];d.history=[];state.optionalTarget=null;state.bearingTarget=null;renderAll()};
 
 $('zoomIn').onclick=()=>{state.zoom=Math.min(4,state.zoom*1.25);draw()};$('zoomOut').onclick=()=>{state.zoom=Math.max(.1,state.zoom/1.25);draw()};$('zoomReset').onclick=fitImage;
 
-function exportData(){const out={schema:MEASUREMENT_SCHEMA,toolVersion:TOOL_VERSION,character:$('character').value.trim(),createdAt:new Date().toISOString(),cameraCalibration:CAMERA_CALIBRATION,views:{}};for(const v of views){const d=state.views[v.id],segs=segmentsFor(v,d),m=pointMap(v,d);const format=s=>{const b=baselineLength(s.from,s.to);return{from:s.from,to:s.to,lengthPx:+s.length.toFixed(6),flatLengthPx:b?+b.toFixed(6):null,rawToFlat:b?+(s.length/b).toFixed(9):null}};out.views[v.id]={title:v.title,sequence:v.label,main:v.main,unavailablePoints:[...d.unavailable],image:{fileName:d.fileName,width:d.width,height:d.height,storagePath:d.storagePath,mimeType:d.mimeType,sizeBytes:d.imageBlob?.size||null},points:Object.fromEntries(Object.entries(m).map(([n,p])=>[n,{x:+p.x.toFixed(4),y:+p.y.toFixed(4)}])),segments:segs.map(format),allPairwiseSegments:allPairs(v,d).map(format)};if(segs.length===2){const b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to);out.views[v.id].adjacentRatio={observed:+(segs[0].length/segs[1].length).toFixed(9),flat:b1&&b2?+(b1/b2).toFixed(9):null,ratioOfRatios:b1&&b2?+((segs[0].length/segs[1].length)/(b1/b2)).toFixed(9):null}}}return out}
-
+function exportData(){const out={schema:MEASUREMENT_SCHEMA,toolVersion:TOOL_VERSION,character:$('character').value.trim(),createdAt:new Date().toISOString(),cameraCalibration:CAMERA_CALIBRATION,views:{}};for(const v of views){const d=state.views[v.id],segs=segmentsFor(v,d),m=pointMap(v,d);const format=seg=>{const base=baselineLength(seg.from,seg.to);return{from:seg.from,to:seg.to,lengthPx:+seg.length.toFixed(6),flatLengthPx:base?+base.toFixed(6):null,rawToFlat:base?+(seg.length/base).toFixed(9):null}};out.views[v.id]={title:v.title,sequence:v.label,main:v.main,unavailablePoints:[...d.unavailable],image:{fileName:d.fileName,width:d.width,height:d.height,storagePath:d.storagePath,mimeType:d.mimeType,sizeBytes:d.imageBlob?.size||null},points:Object.fromEntries(Object.entries(m).map(([n,p])=>[n,{x:+p.x.toFixed(4),y:+p.y.toFixed(4)}])),bearings:Object.values(d.bearings||{}).map(b=>({from:b.from,to:b.to,through:{x:+b.through.x.toFixed(4),y:+b.through.y.toFixed(4)}})),segments:segs.map(format),allPairwiseSegments:allPairs(v,d).map(format)};if(segs.length===2){const b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to);out.views[v.id].adjacentRatio={observed:+(segs[0].length/segs[1].length).toFixed(9),flat:b1&&b2?+(b1/b2).toFixed(9):null,ratioOfRatios:b1&&b2?+((segs[0].length/segs[1].length)/(b1/b2)).toFixed(9):null}}}return out}
 function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 
 $('downloadJson').onclick=()=>download(`${$('character').value.trim()||'constellation'}_chain_measurements.json`,JSON.stringify(exportData(),null,2),'application/json');
 
 $('copy').onclick=async()=>{await navigator.clipboard.writeText(JSON.stringify(exportData(),null,2));const b=$('copy'),old=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=old,1000)};
 
-$('downloadCsv').onclick=()=>{const o=exportData(),rows=[['character','view','sequence','main','image','width','height','from','to','from_x','from_y','to_x','to_y','length_px','flat_length_px','raw_to_flat','is_chain_segment']];for(const [id,v] of Object.entries(o.views)){for(const s of v.allPairwiseSegments){const a=v.points[s.from],b=v.points[s.to],chain=v.segments.some(x=>x.from===s.from&&x.to===s.to);rows.push([o.character,id,v.sequence,v.main||'',v.image.fileName,v.image.width,v.image.height,s.from,s.to,a?.x??'',a?.y??'',b?.x??'',b?.y??'',s.lengthPx,s.flatLengthPx??'',s.rawToFlat??'',chain])}}download(`${o.character||'constellation'}_multistar_measurements.csv`,rows.map(r=>r.map(x=>`"${String(x).replaceAll('"','""')}"`).join(',')).join('\n'),'text/csv')};
-
-$('clearAll').onclick=()=>{if(!confirm('Clear every loaded view, image and measurement?'))return;for(const v of views){if(state.views[v.id].imageUrl)URL.revokeObjectURL(state.views[v.id].imageUrl);state.views[v.id]=emptyView()}state.optionalTarget=null;state.cursor=null;renderAll()};
+$('downloadCsv').onclick=()=>{const o=exportData(),rows=[['character','view','sequence','main','record_type','image','width','height','from','to','from_x','from_y','to_x','to_y','length_px','flat_length_px','raw_to_flat','is_chain_segment','bearing_through_x','bearing_through_y']];for(const [id,v] of Object.entries(o.views)){for(const seg of v.allPairwiseSegments){const a=v.points[seg.from],b=v.points[seg.to],chain=v.segments.some(x=>x.from===seg.from&&x.to===seg.to);rows.push([o.character,id,v.sequence,v.main||'','distance',v.image.fileName,v.image.width,v.image.height,seg.from,seg.to,a?.x??'',a?.y??'',b?.x??'',b?.y??'',seg.lengthPx,seg.flatLengthPx??'',seg.rawToFlat??'',chain,'',''])}for(const b of v.bearings||[]){const a=v.points[b.from];rows.push([o.character,id,v.sequence,v.main||'','bearing',v.image.fileName,v.image.width,v.image.height,b.from,b.to,a?.x??'',a?.y??'','','','','','','',b.through.x,b.through.y])}}download(`${o.character||'constellation'}_multistar_measurements.csv`,rows.map(r=>r.map(x=>`"${String(x).replaceAll('"','""')}"`).join(',')).join('\n'),'text/csv')};
+$('clearAll').onclick=()=>{if(!confirm('Clear every loaded view, image and measurement?'))return;for(const v of views){if(state.views[v.id].imageUrl)URL.revokeObjectURL(state.views[v.id].imageUrl);state.views[v.id]=emptyView()}state.optionalTarget=null;state.bearingTarget=null;state.cursor=null;renderAll()};
 
 function setStatus(id,message,kind=''){const el=$(id);el.textContent=message;el.className=`small ${kind}`}
 
@@ -270,7 +300,7 @@ function validateUpload(payload){if(!payload.character)throw new Error('Enter th
 
 async function sha256(value){const bytes=new TextEncoder().encode(JSON.stringify(value));return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('')}
 
-function importData(payload,{preserveImages=false}={}){if(!payload||typeof payload!=='object'||!payload.views)throw new Error('The saved payload is invalid.');$('character').value=payload.character||'';for(const v of views){const src=payload.views[v.id]||{},old=state.views[v.id],d=emptyView(),points=src.points||{};const retain=preserveImages&&old.image&&old.width===Number(src.image?.width)&&old.height===Number(src.image?.height);if(old.imageUrl&&!retain)URL.revokeObjectURL(old.imageUrl);d.fileName=src.image?.fileName||'';d.width=Number(src.image?.width)||0;d.height=Number(src.image?.height)||0;d.storagePath=src.image?.storagePath||null;d.mimeType=src.image?.mimeType||null;d.unavailable=Array.isArray(src.unavailablePoints)?src.unavailablePoints.filter(n=>v.points.includes(n)):[];d.points=v.points.map(n=>points[n]?{x:Number(points[n].x),y:Number(points[n].y)}:null);d.extra=Object.fromEntries(Object.entries(points).filter(([n])=>!v.points.includes(n)).map(([n,p])=>[n,{x:Number(p.x),y:Number(p.y)}]));if(retain){d.image=old.image;d.imageBlob=old.imageBlob;d.imageUrl=old.imageUrl;d.mimeType=old.mimeType;d.fileName=old.fileName;d.storagePath=old.storagePath}d.history=[...v.points.filter(n=>points[n]).map(name=>({name,type:'point'})),...d.unavailable.map(name=>({name,type:'unavailable'})),...Object.keys(d.extra).map(name=>({name,type:'point'}))];state.views[v.id]=d}state.active='flat';state.zoom=1;state.optionalTarget=null;state.cursor=null;renderAll()}
+function importData(payload,{preserveImages=false}={}){if(!payload||typeof payload!=='object'||!payload.views)throw new Error('The saved payload is invalid.');$('character').value=payload.character||'';for(const v of views){const src=payload.views[v.id]||{},old=state.views[v.id],d=emptyView(),points=src.points||{};const retain=preserveImages&&old.image&&old.width===Number(src.image?.width)&&old.height===Number(src.image?.height);if(old.imageUrl&&!retain)URL.revokeObjectURL(old.imageUrl);d.fileName=src.image?.fileName||'';d.width=Number(src.image?.width)||0;d.height=Number(src.image?.height)||0;d.storagePath=src.image?.storagePath||null;d.mimeType=src.image?.mimeType||null;d.unavailable=Array.isArray(src.unavailablePoints)?src.unavailablePoints.filter(n=>v.points.includes(n)):[];d.points=v.points.map(n=>points[n]?{x:Number(points[n].x),y:Number(points[n].y)}:null);d.extra=Object.fromEntries(Object.entries(points).filter(([n])=>!v.points.includes(n)).map(([n,p])=>[n,{x:Number(p.x),y:Number(p.y)}]));d.bearings={};for(const b of Array.isArray(src.bearings)?src.bearings:[]){if(!b||!v.main||b.from!==v.main||!isAdjacentName(b.from,b.to)||!Number.isFinite(Number(b.through?.x))||!Number.isFinite(Number(b.through?.y)))continue;d.bearings[bearingKey(b.from,b.to)]={from:b.from,to:b.to,through:{x:Number(b.through.x),y:Number(b.through.y)}}}if(retain){d.image=old.image;d.imageBlob=old.imageBlob;d.imageUrl=old.imageUrl;d.mimeType=old.mimeType;d.fileName=old.fileName;d.storagePath=old.storagePath}d.history=[...v.points.filter(n=>points[n]).map(name=>({name,type:'point'})),...d.unavailable.map(name=>({name,type:'unavailable'})),...Object.keys(d.extra).map(name=>({name,type:'point'})),...Object.keys(d.bearings).map(name=>({name,type:'bearing',from:d.bearings[name].from,to:d.bearings[name].to,previous:null,markedUnavailable:false}))];state.views[v.id]=d}state.active='flat';state.zoom=1;state.optionalTarget=null;state.bearingTarget=null;state.cursor=null;renderAll()}
 
 async function uploadImages(character,payload){
  for(const v of views){const d=state.views[v.id];if(!d.imageBlob||d.storagePath)continue;setStatus('dbStatus',`Uploading ${v.title} image…`);const path=`${signedInUser.id}/${character.avatar_id}/${v.id}`;const {error}=await supabase.storage.from(IMAGE_BUCKET).upload(path,d.imageBlob,{upsert:true,contentType:d.mimeType||d.imageBlob.type||'application/octet-stream'});if(error)throw Error(`Image upload failed for ${v.title}: ${error.message}. Run schema v2.5 if the image bucket is not installed.`);d.storagePath=path;payload.views[v.id].image.storagePath=path}
@@ -310,7 +340,7 @@ $('importJsonFile').onchange=async event=>{
  finally{event.target.value=''}
 };
 
-/* Constellation reconstruction extension v4.5.1 */
+/* Constellation reconstruction extension v4.6.1 */
 
 {
 
@@ -544,14 +574,17 @@ panel.innerHTML=`
  It estimates the overview camera translation and crop offset. All those points
  are used in the fit, so their residuals are not independent validation.
  If zoom-only geometry is underdetermined, the overview is allowed to supply the missing
- constraint in the joint fit. If the overview camera still cannot be determined, only a complete
+ constraint in the joint fit. A bearing-only record can also contribute one independent constraint:
+ when an adjacent target star is offscreen but its connecting line is visible, record one point along
+ that line from the selected-star center. This constrains projected direction only and never assumes
+ the missing segment length; it may reduce ambiguity but cannot by itself determine a missing depth. If the overview camera still cannot be determined, only a complete
  zoom-only solution is accepted; otherwise the reconstruction is refused.
 
  </p>
 
  <p class="geo-note">
 
- Top view restores the overview axis orientation and fits the model.
+ Top view now reproduces the fitted overview camera itself when a joint overview fit exists: it uses the fitted lateral camera translation and perspective distance instead of recentering the constellation on a generic camera. Gold is the 3D model projected through that camera; faint cyan is the recorded flat view mapped through the same principal point and focal length. Dragging leaves the exact overview projection and returns to free orbit.
 
  Overview measurements compares recorded points with fitted predictions when the overview is used.
 
@@ -630,6 +663,7 @@ const gc=$('geoCanvas'),gx=gc.getContext('2d');
 let screenStars=[],pointer=null,cssWidth=1,cssHeight=1;
 
 let overviewMode=false;
+let overviewProjectionMode=false;
 
 function options(){
 
@@ -673,7 +707,7 @@ function fingerprint(){
 
  return JSON.stringify({
 
-  character:p.character,views:Object.fromEntries(Object.entries(p.views).map(([id,v])=>[id,{points:v.points,width:v.image?.width,height:v.image?.height}])),
+  character:p.character,views:Object.fromEntries(Object.entries(p.views).map(([id,v])=>[id,{points:v.points,bearings:v.bearings,width:v.image?.width,height:v.image?.height}])),
 
   viewport:[$('geoWidth').value,$('geoHeight').value,$('geoFov').value]
 
@@ -721,9 +755,32 @@ function observationRows(i,j,u,v){
 
 function availableObservations(payload,f){
  const out=[];
- for(let i=0;i<6;i++){const id=`p${i+1}`,src=payload.views?.[id],anchor=src?.points?.[NAMES[i]];if(!anchor)continue;for(let j=0;j<6;j++){const measured=src.points?.[NAMES[j]];if(i===j||!measured)continue;const u=(measured.x-anchor.x)/f,v=-(measured.y-anchor.y)/f;if(!Number.isFinite(u)||!Number.isFinite(v))continue;out.push({i,j,id,anchor,measured,u,v,rows:observationRows(i,j,u,v)})}}
+ for(let i=0;i<6;i++){const id=`p${i+1}`,src=payload.views?.[id],anchor=src?.points?.[NAMES[i]];if(!anchor)continue;for(let j=0;j<6;j++){const measured=src.points?.[NAMES[j]];if(i===j||!measured)continue;const u=(measured.x-anchor.x)/f,v=-(measured.y-anchor.y)/f;if(!Number.isFinite(u)||!Number.isFinite(v))continue;out.push({type:'point',i,j,id,anchor,measured,u,v,rows:observationRows(i,j,u,v),values:[u,v]})}}
  return out;
 }
+
+function bearingRow(i,j,u,v){
+ const row=Array(15).fill(0),put=(p,c,value)=>{if(p>0)row[(p-1)*3+c]+=value};
+ put(j,0,-v);put(i,0,v);put(j,1,u);put(i,1,-u);
+ return row;
+}
+function availableBearingObservations(payload){
+ const out=[];
+ for(let i=0;i<6;i++){
+  const id=`p${i+1}`,src=payload.views?.[id],anchor=src?.points?.[NAMES[i]];
+  if(!anchor)continue;
+  for(const b of Array.isArray(src?.bearings)?src.bearings:[]){
+   if(b?.from!==NAMES[i])continue;
+   const j=NAMES.indexOf(b.to);if(j<0||j===i||src.points?.[b.to])continue;
+   const dx=Number(b.through?.x)-anchor.x,dy=-(Number(b.through?.y)-anchor.y),len=Math.hypot(dx,dy);
+   if(!(len>1e-6))continue;
+   const u=dx/len,v=dy/len;
+   out.push({type:'bearing',i,j,id,anchor,through:{x:Number(b.through.x),y:Number(b.through.y)},u,v,rows:[bearingRow(i,j,u,v)],values:[0]});
+  }
+ }
+ return out;
+}
+function constraintKey(x){return x.type==='bearing'?`b:${x.id}:${x.i},${x.j}`:`p:${x.id}:${x.i},${x.j}`}
 
 // Small dense solver; damping is used only during optimization, never as a depth prior.
 function denseSolve(A,b){
@@ -764,83 +821,55 @@ function optimizePerspective(fn,initial){
  }
  return {q,cost,J:numericalJacobian(fn,q,r)};
 }
-function fitOverview(payload,observations,f){
+function fitOverview(payload,observations,bearings,f){
  const flat=NAMES.map((name,i)=>({i,p:payload.views?.flat?.points?.[name]})).filter(x=>Number.isFinite(x.p?.x)&&Number.isFinite(x.p?.y));
  if(flat.length<4)throw Error('At least four overview points are needed for a joint camera fit.');
- if(observations.length*2+flat.length*2<20)throw Error('Too few observations to determine the joint 3D and overview camera fit.');
- const rows=observations.flatMap(x=>x.rows),values=observations.flatMap(x=>[x.u,x.v]);
+ const constraints=[...observations,...bearings];
+ if(observations.length*2+bearings.length+flat.length*2<20)throw Error('Too few observations to determine the joint 3D and overview camera fit.');
+ const rows=constraints.flatMap(x=>x.rows),values=constraints.flatMap(x=>x.values);
  const seed=ridgeLeastSquares(rows,values,1e-8);
  const unpack=q=>[[0,0,0],...Array.from({length:5},(_,i)=>q.slice(i*3,i*3+3))];
  const project=(q,P,i)=>[q[18]+(P[i][0]-q[15])/(q[17]-P[i][2]),q[19]+(P[i][1]-q[16])/(q[17]-P[i][2])];
  const fn=q=>{const P=unpack(q),r=[];
-  if(P.some(p=>q[17]-p[2]<=1e-5)||observations.some(x=>1-P[x.j][2]+P[x.i][2]<=1e-5))return Array(2*(observations.length+flat.length)).fill(1e8);
+  if(P.some(p=>q[17]-p[2]<=1e-5)||constraints.some(x=>1-P[x.j][2]+P[x.i][2]<=1e-5))return Array(2*observations.length+bearings.length+2*flat.length).fill(1e8);
   for(const x of observations){const d=sub(P[x.j],P[x.i]);r.push(d[0]/(1-d[2])-x.u,d[1]/(1-d[2])-x.v)}
+  for(const x of bearings){const d=sub(P[x.j],P[x.i]),depth=1-d[2],px=d[0]/depth,py=d[1]/depth,mag=Math.hypot(px,py);if(mag<1e-12)r.push(1e3);else r.push(Math.atan2(x.u*py-x.v*px,x.u*px+x.v*py))}
   for(const {i,p} of flat){const a=project(q,P,i);r.push(a[0]-p.x/f,a[1]+p.y/f)}return r;
  };
  let best=null;
  for(const distance of [1.5,2.5,4]){
-  const q=[...seed,0,0,Math.max(...unpack(seed).map(p=>p[2]))+distance,flat.reduce((s,x)=>s+x.p.x/f,0)/flat.length,-flat.reduce((s,x)=>s+x.p.y/f,0)/flat.length];
+  const q=[...seed,0,0,Math.max(...unpack(seed).map(p=>p[2]))+distance,flat.reduce((sum,x)=>sum+x.p.x/f,0)/flat.length,-flat.reduce((sum,x)=>sum+x.p.y/f,0)/flat.length];
   const fit=optimizePerspective(fn,q);if(!best||fit.cost<best.cost)best=fit;
  }
  const scales=best.q.map((_,j)=>Math.hypot(...best.J.map(r=>r[j]))||1);
  const rank=matrixRank(best.J.map(r=>r.map((v,j)=>v/scales[j])),1e-6);
- if(rank<20||!Number.isFinite(best.cost)||best.cost>=1e15)throw Error(`Joint overview fit is underdetermined (${rank}/20); more independent sightings are needed.`);
+ if(rank<20||!Number.isFinite(best.cost)||best.cost>=1e15)throw Error(`Joint overview fit is underdetermined (${rank}/20). Bearing-only line directions constrain projected XY direction but not depth; if rank remains below 20, at least one depth-sensitive point sighting or transition constraint is still needed.`);
  const points=unpack(best.q),q=best.q;
- return {points,rank,observationCount:flat.length,camera:{translation:[q[15],q[16],q[17]],principalPointPx:{x:q[18]*f,y:-q[19]*f}},checks:flat.map(({i,p})=>{const a=project(q,points,i),predicted={x:a[0]*f,y:-a[1]*f};return {view:'flat',star:NAMES[i],main:'Overview',kind:'construction',measured:{...p},predicted,errorPx:Math.hypot(predicted.x-p.x,predicted.y-p.y),behindCamera:false}})};
+ return {points,rank,observationCount:flat.length,camera:{translation:[q[15],q[16],q[17]],principalPointPx:{x:q[18]*f,y:-q[19]*f}},checks:flat.map(({i,p})=>{const a=project(q,points,i),predicted={x:a[0]*f,y:-a[1]*f};return {type:'point',view:'flat',star:NAMES[i],main:'Overview',kind:'construction',measured:{...p},predicted,errorPx:Math.hypot(predicted.x-p.x,predicted.y-p.y),behindCamera:false}})};
 }
 
 function reconstruct(payload,o){
- const f=focal(o),observations=availableObservations(payload,f);
+ const f=focal(o),observations=availableObservations(payload,f),bearings=availableBearingObservations(payload),constraints=[...observations,...bearings];
  const pairs=new Set(observations.map(x=>`${x.i},${x.j}`));
  observations.forEach(x=>x.priority=Math.abs(x.i-x.j)===1&&pairs.has(`${x.j},${x.i}`)?0:Math.abs(x.i-x.j)===1?1:2);
- observations.sort((a,b)=>a.priority-b.priority||a.i-b.i||a.j-b.j);
+ bearings.forEach(x=>x.priority=1.5);
+ constraints.sort((a,b)=>a.priority-b.priority||a.i-b.i||a.j-b.j);
  let constructionRows=[],construction=[],rank=0;
- for(const obs of observations){const candidate=constructionRows.concat(obs.rows),nextRank=matrixRank(candidate);if(nextRank>rank){construction.push(obs);constructionRows=candidate;rank=nextRank}if(rank===15)break}
+ for(const c of constraints){const candidate=constructionRows.concat(c.rows),nextRank=matrixRank(candidate);if(nextRank>rank){construction.push(c);constructionRows=candidate;rank=nextRank}if(rank===15)break}
  const zoomRank=rank;let overview=null,overviewNote='';
- try{overview=fitOverview(payload,observations,f)}catch(e){overviewNote=e.message;if(rank<15)throw Error(`Zoom views give rank ${rank}/15. ${overviewNote} No missing depths were guessed.`)}
+ try{overview=fitOverview(payload,observations,bearings,f)}catch(e){overviewNote=e.message;if(rank<15)throw Error(`Zoom views plus bearing constraints give rank ${rank}/15. ${overviewNote} No missing depths were guessed.`)}
  let points;
- if(overview){points=overview.points;construction=observations;rank=15}
- else{const solution=leastSquares(constructionRows,construction.flatMap(x=>[x.u,x.v]));points=[[0,0,0]];for(let i=1;i<6;i++)points.push(solution.slice((i-1)*3,(i-1)*3+3))}
- const used=new Set(construction.map(x=>`${x.i},${x.j}`)),reciprocal=[];
+ if(overview){points=overview.points;construction=constraints;rank=15}
+ else{const solution=leastSquares(constructionRows,construction.flatMap(x=>x.values));points=[[0,0,0]];for(let i=1;i<6;i++)points.push(solution.slice((i-1)*3,(i-1)*3+3))}
+ const used=new Set(construction.map(constraintKey)),reciprocal=[];
  for(let i=0;i<5;i++){const a=observations.find(x=>x.i===i&&x.j===i+1),b=observations.find(x=>x.i===i+1&&x.j===i);let disagreement=null;if(a&&b){const av=[a.u,a.v],bv=[b.u,b.v],A=norm(av),B=norm(bv);if(A>.000001&&B>.000001)disagreement=Math.acos(clamp(-dot(av,bv)/(A*B),-1,1))*180/Math.PI}reciprocal.push({from:NAMES[i],to:NAMES[i+1],directionDisagreementDeg:disagreement})}
-
  const lengths=EDGES.map(([i,j])=>norm(sub(points[j],points[i])));
-
- const angles=points.slice(1,5).map((p,k)=>{
-
-  const i=k+1,a=sub(points[i-1],p),b=sub(points[i+1],p);
-
-  return Math.acos(clamp(dot(a,b)/(norm(a)*norm(b)),-1,1))*180/Math.PI;
-
- });
-
- const checks=observations.map(obs=>{const d=sub(points[obs.j],points[obs.i]),depth=1-d[2],predicted=depth>0?{x:obs.anchor.x+f*d[0]/depth,y:obs.anchor.y-f*d[1]/depth}:null;return {view:obs.id,star:NAMES[obs.j],main:NAMES[obs.i],kind:used.has(`${obs.i},${obs.j}`)?'construction':'held-out',measured:{x:obs.measured.x,y:obs.measured.y},predicted,errorPx:predicted?Math.hypot(predicted.x-obs.measured.x,predicted.y-obs.measured.y):null,behindCamera:depth<=0}});
+ const angles=points.slice(1,5).map((p,k)=>{const i=k+1,a=sub(points[i-1],p),b=sub(points[i+1],p);return Math.acos(clamp(dot(a,b)/(norm(a)*norm(b)),-1,1))*180/Math.PI});
+ const checks=observations.map(obs=>{const d=sub(points[obs.j],points[obs.i]),depth=1-d[2],predicted=depth>0?{x:obs.anchor.x+f*d[0]/depth,y:obs.anchor.y-f*d[1]/depth}:null;return {type:'point',view:obs.id,star:NAMES[obs.j],main:NAMES[obs.i],kind:used.has(constraintKey(obs))?'construction':'held-out',measured:{x:obs.measured.x,y:obs.measured.y},predicted,errorPx:predicted?Math.hypot(predicted.x-obs.measured.x,predicted.y-obs.measured.y):null,behindCamera:depth<=0}});
+ for(const b of bearings){const d=sub(points[b.j],points[b.i]),depth=1-d[2],px=depth>0?d[0]/depth:null,py=depth>0?d[1]/depth:null,mag=px===null?0:Math.hypot(px,py),cos=mag?clamp((b.u*px+b.v*py)/mag,-1,1):null;checks.push({type:'bearing',view:b.id,star:NAMES[b.j],main:NAMES[b.i],kind:used.has(constraintKey(b))?'construction':'held-out',measured:{x:b.through.x,y:b.through.y},predicted:null,errorPx:null,bearingErrorDeg:cos===null?null:Math.acos(cos)*180/Math.PI,behindCamera:depth<=0})}
  if(overview)checks.push(...overview.checks);
- const constraintStatus=NAMES.map((name,i)=>{if(i===0)return {star:name,status:'gauge anchor',sightings:observations.filter(x=>x.j===i).length};const sightings=observations.filter(x=>x.j===i).length,direct=EDGES.some(([a,b])=>(a===i||b===i)&&pairs.has(`${a},${b}`)&&pairs.has(`${b},${a}`));return {star:name,status:direct?'direct reciprocal':'indirectly solved',sightings}});
-
- return {
-
-  algorithm:MODEL_VERSION,points,edges:EDGES,
-
-  lengths,ratios:lengths.map(x=>x/lengths[0]),anglesDeg:angles,
-
-  reciprocal,reprojection:checks,constraintStatus,
-
-  rank,zoomRank,overviewCamera:overview?.camera||null,jointRank:overview?.rank||null,overviewNote,
-  availableObservationCount:observations.length+(overview?.observationCount||0),constructionObservationCount:construction.length+(overview?.observationCount||0),
-
-  camera:{...o,focalLengthPx:f,selectedOffset:1},
-
-  assumptions:{
-
-   parallelAxes:true,equalSelectedOffsets:true,
-
-   selectedStarOnOpticalAxis:true,unscaledCrops:true
-
-  }
-
- };
-
+ const constraintStatus=NAMES.map((name,i)=>{if(i===0)return {star:name,status:'gauge anchor',sightings:observations.filter(x=>x.j===i).length,bearings:bearings.filter(x=>x.j===i).length};const sightings=observations.filter(x=>x.j===i).length,bearingCount=bearings.filter(x=>x.j===i).length,direct=EDGES.some(([a,b])=>(a===i||b===i)&&pairs.has(`${a},${b}`)&&pairs.has(`${b},${a}`));return {star:name,status:direct?'direct reciprocal':sightings?'indirectly solved':bearingCount?'bearing-constrained':'indirectly solved',sightings,bearings:bearingCount}});
+ return {algorithm:MODEL_VERSION,points,edges:EDGES,lengths,ratios:lengths.map(x=>x/lengths[0]),anglesDeg:angles,reciprocal,reprojection:checks,constraintStatus,rank,zoomRank,overviewCamera:overview?.camera||null,jointRank:overview?.rank||null,overviewNote,bearingObservationCount:bearings.length,availableObservationCount:observations.length+bearings.length+(overview?.observationCount||0),constructionObservationCount:construction.length+(overview?.observationCount||0),camera:{...o,focalLengthPx:f,selectedOffset:1},assumptions:{parallelAxes:true,equalSelectedOffsets:true,selectedStarOnOpticalAxis:true,unscaledCrops:true}};
 }
 
 function rms(rows){
@@ -897,12 +926,12 @@ function updateButtons(){
 
 }
 
-function fitWarningRows(result,threshold){return result.reprojection.filter(r=>r.behindCamera||Number.isFinite(r.errorPx)&&r.errorPx>threshold).sort((a,b)=>(b.behindCamera?Infinity:b.errorPx)-(a.behindCamera?Infinity:a.errorPx))}
+function fitWarningRows(result,threshold){return result.reprojection.filter(r=>r.behindCamera||r.type==='bearing'&&Number.isFinite(r.bearingErrorDeg)&&r.bearingErrorDeg>3||r.type!=='bearing'&&Number.isFinite(r.errorPx)&&r.errorPx>threshold).sort((a,b)=>(b.behindCamera?Infinity:(b.type==='bearing'?b.bearingErrorDeg:b.errorPx))-(a.behindCamera?Infinity:(a.type==='bearing'?a.bearingErrorDeg:a.errorPx)))}
 function fitThreshold(){const value=Number($('geoFitThreshold').value);return Number.isFinite(value)&&value>0?value:5}
 function renderFitWarnings(){
  const threshold=fitThreshold(),flagged=fitWarningRows(model,threshold),held=model.reprojection.filter(r=>r.kind==='held-out');
- $('geoFitWarnings').innerHTML=flagged.length?`<div style="border:1px solid #e9b44c;border-radius:8px;padding:12px;margin:10px 0;background:#30291a"><b>Double-check ${flagged.length} observation${flagged.length===1?'':'s'}</b><p class="small">These points disagree with the current model. Check the star label, its center, and the main-star center in that view. Edge clipping or camera assumptions can also cause a mismatch. Nothing has been removed.</p><table><thead><tr><th>Selected view</th><th>Check star</th><th>Miss</th><th>Used to fit?</th><th></th></tr></thead><tbody>${flagged.map(r=>`<tr><td>${esc(r.main)}</td><td>${esc(r.star)}</td><td>${r.behindCamera?'Behind camera':fmt(r.errorPx,1)+' px'}</td><td>${r.kind==='construction'?'Yes':'No'}</td><td><button data-inspect-fit="${r.view==='flat'?'flat':Number(r.view.slice(1))-1}">Inspect view</button></td></tr>`).join('')}</tbody></table></div>`:`<p class="small">No observation exceeds ${threshold} px.${held.length?'':' No unused sightings are available for an independent check.'}</p>`;
- $('geoFitWarnings').insertAdjacentHTML('beforeend','<p class="geo-note">Warnings compare recorded points with model predictions. A mislabeled point used to build the model can shift the fit and make other points look wrong. A small residual does not guarantee correct labeling.</p>');
+ $('geoFitWarnings').innerHTML=flagged.length?`<div style="border:1px solid #e9b44c;border-radius:8px;padding:12px;margin:10px 0;background:#30291a"><b>Double-check ${flagged.length} observation${flagged.length===1?'':'s'}</b><p class="small">These points disagree with the current model. Check the star label, its center, and the main-star center in that view. Edge clipping or camera assumptions can also cause a mismatch. Nothing has been removed.</p><table><thead><tr><th>Selected view</th><th>Check star</th><th>Miss</th><th>Used to fit?</th><th></th></tr></thead><tbody>${flagged.map(r=>`<tr><td>${esc(r.main)}</td><td>${esc(r.star)}</td><td>${r.behindCamera?'Behind camera':r.type==='bearing'?fmt(r.bearingErrorDeg,2)+'°':fmt(r.errorPx,1)+' px'}</td><td>${r.kind==='construction'?'Yes':'No'}</td><td><button data-inspect-fit="${r.view==='flat'?'flat':Number(r.view.slice(1))-1}">Inspect view</button></td></tr>`).join('')}</tbody></table></div>`:`<p class="small">No observation exceeds ${threshold} px.${held.length?'':' No unused sightings are available for an independent check.'}</p>`;
+ $('geoFitWarnings').insertAdjacentHTML('beforeend','<p class="geo-note">Warnings compare recorded points and bearing-only line directions with model predictions. Bearing warnings use a fixed 3° threshold. A mislabeled point used to build the model can shift the fit and make other points look wrong. A small residual does not guarantee correct labeling.</p>');
  $('geoFitWarnings').querySelectorAll('[data-inspect-fit]').forEach(button=>button.onclick=()=>{const target=button.dataset.inspectFit;if(target==='flat'){selectView('flat');$('geoOverview').click()}else{const i=Number(target);selectView(`p${i+1}`);selectedView(i)};$('viewTitle').scrollIntoView({behavior:'smooth',block:'start'})});
  return flagged.length;
 }
@@ -950,7 +979,7 @@ function summarize(){
 
  ${bad?`${bad} observation(s) fall behind the assumed camera.`:''}</p>`;
 
- $('geoMetrics').insertAdjacentHTML('beforeend',`<p class="geo-note">${model.jointRank?`Joint rank: ${model.jointRank}/20 (zoom alone: ${model.zoomRank}/15). Overview + zoom fit.`:`Zoom rank: ${model.rank}/15. Overview not used: ${esc(model.overviewNote)}`}  ${model.constructionObservationCount} of ${model.availableObservationCount} observations used for construction; ${held.length} held out.</p><table><thead><tr><th>Point</th><th>Constraint</th><th>Seen from other centers</th></tr></thead><tbody>${model.constraintStatus.map(x=>`<tr><td>${x.star}</td><td>${x.status}</td><td>${x.sightings}</td></tr>`).join('')}</tbody></table>`);
+ $('geoMetrics').insertAdjacentHTML('beforeend',`<p class="geo-note">${model.jointRank?`Joint rank: ${model.jointRank}/20 (zoom alone: ${model.zoomRank}/15). Overview + zoom fit.`:`Zoom rank: ${model.rank}/15. Overview not used: ${esc(model.overviewNote)}`}  ${model.constructionObservationCount} of ${model.availableObservationCount} observations used for construction; ${held.length} held out.</p><table><thead><tr><th>Point</th><th>Constraint</th><th>Point sightings</th><th>Bearing-only</th></tr></thead><tbody>${model.constraintStatus.map(x=>`<tr><td>${x.star}</td><td>${x.status}</td><td>${x.sightings}</td><td>${x.bearings||0}</td></tr>`).join('')}</tbody></table><p class="geo-note">${model.bearingObservationCount||0} bearing-only line-direction constraint(s) were available. They constrain direction only; they do not assume an offscreen segment length.</p>`);
 
  const flaggedCount=renderFitWarnings();
  const directionBad=model.reciprocal.some(r=>Number.isFinite(r.directionDisagreementDeg)&&r.directionDisagreementDeg>3);
@@ -979,7 +1008,7 @@ function fitView(reset=false){
 
  if(!model)return;
 
- overviewMode=false;camera.selected=null;
+ overviewMode=false;overviewProjectionMode=false;camera.selected=null;
 
  if(reset){camera.yaw=0;camera.pitch=0}
 
@@ -997,11 +1026,34 @@ function fitView(reset=false){
 
 }
 
+function topView(){
+ if(!model)return;
+ overviewMode=false;camera.selected=null;camera.yaw=0;camera.pitch=0;
+ const oc=model.overviewCamera;
+ if(oc?.translation?.length===3){
+  // Reproduce the actual fitted flat-overview camera instead of recentering the
+  // constellation on an arbitrary on-axis camera. The overview fit assumes
+  // parallel axes, so translation + camera distance are sufficient to recover
+  // its perspective shape. Rendering is then auto-fitted to the canvas without
+  // changing that shape.
+  camera.target=[oc.translation[0],oc.translation[1],0];
+  camera.distance=oc.translation[2];
+  overviewProjectionMode=true;
+ }else{
+  const {c,r}=centerAndRadius();camera.target=c;
+  const aspect=Math.max(.1,cssWidth/cssHeight);
+  const half=Math.atan(Math.tan(model.camera.fov*Math.PI/360)*Math.min(1,aspect));
+  camera.distance=r/Math.sin(half)*1.12;
+  overviewProjectionMode=false;
+ }
+ $('geoReprojection').replaceChildren();paint();
+}
+
 function selectedView(i){
 
  if(!currentValid())return;
 
- overviewMode=false;camera.selected=i;camera.yaw=0;camera.pitch=0;
+ overviewMode=false;overviewProjectionMode=false;camera.selected=i;camera.yaw=0;camera.pitch=0;
 
  camera.target=model.points[i];camera.distance=1;
 
@@ -1017,13 +1069,13 @@ function selectedView(i){
 
  <th>Predicted x, y</th><th>Error</th></tr></thead><tbody>
 
- ${rows.map(r=>`<tr${r.behindCamera||r.errorPx>fitThreshold()?' style="background:#30291a;color:#ffe2a3"':''}><td>${r.star}</td><td>${r.kind}</td>
+ ${rows.map(r=>`<tr${r.behindCamera||r.type==='bearing'&&r.bearingErrorDeg>3||r.type!=='bearing'&&r.errorPx>fitThreshold()?' style="background:#30291a;color:#ffe2a3"':''}><td>${r.star}${r.type==='bearing'?' (line)':''}</td><td>${r.kind}</td>
 
- <td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td>
+ <td>${r.type==='bearing'?'direction through '+fmt(r.measured.x,1)+', '+fmt(r.measured.y,1):fmt(r.measured.x,1)+', '+fmt(r.measured.y,1)}</td>
 
- <td>${r.predicted?fmt(r.predicted.x,1)+', '+fmt(r.predicted.y,1):'Behind camera'}</td>
+ <td>${r.type==='bearing'?'model ray':r.predicted?fmt(r.predicted.x,1)+', '+fmt(r.predicted.y,1):'Behind camera'}</td>
 
- <td>${fmt(r.errorPx)} px</td></tr>`).join('')}</tbody></table>`;
+ <td>${r.type==='bearing'?fmt(r.bearingErrorDeg,2)+'°':fmt(r.errorPx)+' px'}</td></tr>`).join('')}</tbody></table>`;
 
  paint();
 
@@ -1144,7 +1196,7 @@ function paint(){
 
   model.reprojection.filter(r=>r.view===id).forEach(r=>{
 
-   if(r.predicted)line(cv(r.measured),cv(r.predicted),'#ff7f91',1);
+   if(r.type!=='bearing'&&r.predicted)line(cv(r.measured),cv(r.predicted),'#ff7f91',1);
 
   });
 
@@ -1162,6 +1214,34 @@ function paint(){
 
   gx.restore();return;
 
+ }
+
+ if(overviewProjectionMode&&model.overviewCamera){
+  const oc=model.overviewCamera,[tx,ty,tz]=oc.translation;
+  const raw=model.points.map(P=>{const d=tz-P[2];return d>1e-8?[(P[0]-tx)/d,-(P[1]-ty)/d]:null});
+  const valid=raw.filter(Boolean);
+  if(valid.length){
+   const xs=valid.map(p=>p[0]),ys=valid.map(p=>p[1]);
+   const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
+   const scale=Math.min((cssWidth-70)/Math.max(maxx-minx,1e-9),(cssHeight-70)/Math.max(maxy-miny,1e-9));
+   const cx=(minx+maxx)/2,cy=(miny+maxy)/2;
+   const cv=p=>[cssWidth/2+(p[0]-cx)*scale,cssHeight/2+(p[1]-cy)*scale];
+   const p=raw.map(q=>q?cv(q):null);
+
+   // Recorded flat-view points are mapped through the same fitted principal point
+   // and focal length, so cyan-vs-gold disagreement is a real fit residual rather
+   // than an independent recenter/scale operation.
+   const payload=originalExport(),flat=payload.views?.flat?.points||{},f0=model.camera.focalLengthPx;
+   const pp=oc.principalPointPx||{x:0,y:0};
+   const measured=NAMES.map(n=>{const q=flat[n];return q?cv([(q.x-pp.x)/f0,-(q.y-pp.y)/f0]):null});
+   displayEdges().forEach(([i,j])=>{if(measured[i]&&measured[j])line(measured[i],measured[j],'#69e6df55',2)});
+   measured.forEach((q,i)=>{if(q)marker(q,'#69e6df','',3)});
+   displayEdges().forEach(([i,j])=>{if(p[i]&&p[j])line(p[i],p[j],'#ffd66b',3)});
+   p.forEach((q,i)=>{if(q){marker(q,'#ffd66b',NAMES[i],6);screenStars.push({i,p:q})}});
+   gx.fillStyle='#9eb2c1';gx.font='12px system-ui';
+   gx.fillText('Overview-aligned 3D • gold = model • cyan = recorded flat view • Drag to orbit',12,20);
+   return;
+  }
  }
 
  const f=cssHeight/2/Math.tan(model.camera.fov*Math.PI/360);
@@ -1217,6 +1297,7 @@ gc.onpointermove=e=>{
  if(pointer.moved){
 
   if(camera.selected!==null)fitView();
+  if(overviewProjectionMode)overviewProjectionMode=false;
 
   camera.yaw+=dx*.008;camera.pitch=clamp(camera.pitch+dy*.008,-Math.PI/2,Math.PI/2);
 
@@ -1251,6 +1332,7 @@ gc.addEventListener('wheel',e=>{
  if(!model||overviewMode||camera.selected!==null)return;
 
  e.preventDefault();
+ overviewProjectionMode=false;
 
  const {r}=centerAndRadius();
 
@@ -1272,17 +1354,17 @@ $('geoCalculate').onclick=()=>{
 
   searchResults=[];searchGeneration++;$('geoMatches').replaceChildren();
 
-  summarize();fitView(true);updateButtons();loadRecordedTopology(model);
+  summarize();topView();updateButtons();loadRecordedTopology(model);
 
  }catch(e){setStatus('geoStatus',e.message,'error')}
 
 };
 
-$('geoTop').onclick=()=>fitView(true);
+$('geoTop').onclick=()=>topView();
 
 $('geoFit').onclick=()=>fitView();
 
-$('geoOverview').onclick=()=>{overviewMode=true;const rows=model.reprojection.filter(r=>r.view==='flat');$('geoReprojection').innerHTML=rows.length?`<p>Overview points used in the joint fit; these are not held-out checks.</p><table><thead><tr><th>Star</th><th>Measured x, y</th><th>Predicted x, y</th><th>Error</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.star}</td><td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td><td>${fmt(r.predicted.x,1)}, ${fmt(r.predicted.y,1)}</td><td>${fmt(r.errorPx,2)} px</td></tr>`).join('')}</tbody></table>`:'';paint()};
+$('geoOverview').onclick=()=>{overviewProjectionMode=false;overviewMode=true;const rows=model.reprojection.filter(r=>r.view==='flat');$('geoReprojection').innerHTML=rows.length?`<p>Overview points used in the joint fit; these are not held-out checks.</p><table><thead><tr><th>Star</th><th>Measured x, y</th><th>Predicted x, y</th><th>Error</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.star}</td><td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td><td>${fmt(r.predicted.x,1)}, ${fmt(r.predicted.y,1)}</td><td>${fmt(r.errorPx,2)} px</td></tr>`).join('')}</tbody></table>`:'';paint()};
 
 document.querySelectorAll('[data-geo-star]').forEach(b=>b.onclick=()=>selectedView(Number(b.dataset.geoStar)));
 
