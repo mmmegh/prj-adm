@@ -121,7 +121,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "../project-adam-config.js";
 
-const TOOL_VERSION='4.5.0';
+const TOOL_VERSION='4.5.1';
 
 const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
 
@@ -310,7 +310,7 @@ $('importJsonFile').onchange=async event=>{
  finally{event.target.value=''}
 };
 
-/* Constellation reconstruction extension v4.5.0 */
+/* Constellation reconstruction extension v4.5.1 */
 
 {
 
@@ -543,8 +543,9 @@ panel.innerHTML=`
  and the overview as a perspective camera with the same FOV and parallel axes.
  It estimates the overview camera translation and crop offset. All those points
  are used in the fit, so their residuals are not independent validation.
- If the overview camera cannot be determined, a complete zoom-only solution is
- used and the reason is shown. Underdetermined reconstructions are refused.
+ If zoom-only geometry is underdetermined, the overview is allowed to supply the missing
+ constraint in the joint fit. If the overview camera still cannot be determined, only a complete
+ zoom-only solution is accepted; otherwise the reconstruction is refused.
 
  </p>
 
@@ -739,6 +740,16 @@ function fitNormal(J,r,lambda){
  for(let i=0;i<n;i++)A[i][i]+=lambda*Math.max(A[i][i],1e-8);
  return denseSolve(A,b);
 }
+// Minimum-norm-like ridge seed for an underdetermined linear zoom system.
+// Use isotropic damping here (not the column-scaled LM damping above): when zoom
+// rank is 14/15, scaled damping can push the free depth to an arbitrary, nonphysical
+// value and make the joint overview optimizer start behind a selected-star camera.
+function ridgeLeastSquares(rows,values,lambda=1e-8){
+ const n=rows[0].length,A=Array.from({length:n},()=>Array(n).fill(0)),b=Array(n).fill(0);
+ rows.forEach((row,k)=>{for(let i=0;i<n;i++){b[i]+=row[i]*values[k];for(let j=0;j<n;j++)A[i][j]+=row[i]*row[j]}});
+ for(let i=0;i<n;i++)A[i][i]+=lambda;
+ return denseSolve(A,b);
+}
 function numericalJacobian(fn,q,r){
  const J=r.map(()=>Array(q.length));
  for(let j=0;j<q.length;j++){const h=1e-6*Math.max(1,Math.abs(q[j])),v=q.slice();v[j]+=h;const s=fn(v);for(let i=0;i<r.length;i++)J[i][j]=(s[i]-r[i])/h}return J;
@@ -758,7 +769,7 @@ function fitOverview(payload,observations,f){
  if(flat.length<4)throw Error('At least four overview points are needed for a joint camera fit.');
  if(observations.length*2+flat.length*2<20)throw Error('Too few observations to determine the joint 3D and overview camera fit.');
  const rows=observations.flatMap(x=>x.rows),values=observations.flatMap(x=>[x.u,x.v]);
- const seed=fitNormal(rows,values.map(v=>-v),1e-7);
+ const seed=ridgeLeastSquares(rows,values,1e-8);
  const unpack=q=>[[0,0,0],...Array.from({length:5},(_,i)=>q.slice(i*3,i*3+3))];
  const project=(q,P,i)=>[q[18]+(P[i][0]-q[15])/(q[17]-P[i][2]),q[19]+(P[i][1]-q[16])/(q[17]-P[i][2])];
  const fn=q=>{const P=unpack(q),r=[];
