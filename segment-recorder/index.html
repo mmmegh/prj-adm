@@ -128,7 +128,7 @@ const databaseReady=(async()=>{
  }catch{return null}
 })();
 
-const TOOL_VERSION='4.7.0';
+const TOOL_VERSION='4.7.1';
 
 const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
 
@@ -160,7 +160,7 @@ const views=[
 
 function emptyView(){return {points:[],extra:{},bearings:{},unavailable:[],history:[],fileName:'',width:0,height:0,image:null,imageBlob:null,imageUrl:null,storagePath:null,mimeType:null}}
 
-const state={active:'flat',zoom:1,optionalTarget:null,bearingTarget:null,cursor:null,views:{}}; for(const v of views)state.views[v.id]=emptyView();
+const state={active:'flat',zoom:1,optionalTarget:null,bearingTarget:null,bearingPointA:null,cursor:null,views:{}}; for(const v of views)state.views[v.id]=emptyView();
 
 const $=id=>document.getElementById(id), canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
 
@@ -204,21 +204,21 @@ function recordedSegmentsFor(v,d){
 }
 function bearingKey(from,to){return `${from}>${to}`}
 function validStarPair(a,b){return /^P[1-6]$/.test(a)&&/^P[1-6]$/.test(b)&&a!==b}
-function bearingCandidates(v,d){if(v.id==='flat'||!v.main)return[];const m=pointMap(v,d);if(!m[v.main])return[];return ['P1','P2','P3','P4','P5','P6'].filter(n=>n!==v.main&&!m[n]).sort((a,b)=>Number(isRecordedConnection(v.main,b))-Number(isRecordedConnection(v.main,a))||a.localeCompare(b))}
-function armBearing(target){state.optionalTarget=null;state.bearingTarget=target;renderAll()}
+function bearingCandidates(v,d){if(v.id==='flat'||!v.main)return[];const m=pointMap(v,d);if(!m[v.main])return[];const missing=['P1','P2','P3','P4','P5','P6'].filter(n=>n!==v.main&&!m[n]);const topology=captureTopology();return topology?missing.filter(n=>isRecordedConnection(v.main,n)):missing}
+function armBearing(target){state.optionalTarget=null;state.bearingTarget=target;state.bearingPointA=null;renderAll()}
 
 function baselineLength(a,b){const d=state.views.flat,v=views[0],m=pointMap(v,d);return m[a]&&m[b]?dist(m[a],m[b]):null}
 
 function renderList(){ $('viewList').innerHTML=views.map(v=>{const d=state.views[v.id],m=pointMap(v,d),resolved=v.points.filter(n=>m[n]||d.unavailable.includes(n)).length,done=resolved===v.points.length,total=Object.keys(m).length;return `<button class="view-btn ${v.id===state.active?'active':''} ${done?'done':''}" data-id="${v.id}"><span>${v.label.replace('(main)','<span class="main-tag">(main)</span>')}</span><span class="status">${done?total+' stars':resolved+'/'+v.points.length}</span></button>`}).join('');document.querySelectorAll('.view-btn').forEach(b=>b.onclick=()=>selectView(b.dataset.id));}
 
-function selectView(id){state.active=id;state.zoom=1;state.optionalTarget=null;state.bearingTarget=null;renderAll();fitImage()}
+function selectView(id){state.active=id;state.zoom=1;state.optionalTarget=null;state.bearingTarget=null;state.bearingPointA=null;renderAll();fitImage()}
 
 function renderAll(){
  const v=currentDef(),d=current(),m=pointMap(v,d),next=nextRequired(v,d);
  renderList();$('viewTitle').textContent=v.title;
  if(state.bearingTarget){
-  $('instruction').innerHTML=`<b>Line-direction mode:</b> click a point on the straight visible connection from <b>${v.main}</b> toward offscreen <b>${state.bearingTarget}</b>. Use the line center, away from the star glow. <button id="cancelBearing">Cancel</button><p class="small">Only direction is recorded. Skip curved or uncertain connections.</p>`;
-  $('cancelBearing').onclick=()=>{state.bearingTarget=null;renderAll()};
+  $('instruction').innerHTML=state.bearingPointA?`<b>Line-axis mode:</b> first point recorded. Click a <b>second point</b> farther along the same straight rendered line for <b>${v.main}–${state.bearingTarget}</b>. <button id="cancelBearing">Cancel</button><p class="small">The two line clicks define an axis; the line does not need to pass through the star center.</p>`:`<b>Line-axis mode:</b> click the <b>first point directly on the rendered line</b> for <b>${v.main}–${state.bearingTarget}</b>, away from the star glow. <button id="cancelBearing">Cancel</button><p class="small">You will click a second point on the same line. Only the line axis is used, not its offset from the star.</p>`;
+  $('cancelBearing').onclick=()=>{state.bearingTarget=null;state.bearingPointA=null;renderAll()};
  }else if(state.optionalTarget){
   $('instruction').innerHTML=`Click the center of <b>${state.optionalTarget}</b>. <button id="cancelOptional">Cancel</button>`;
   $('cancelOptional').onclick=()=>{state.optionalTarget=null;renderAll()};
@@ -230,8 +230,8 @@ function renderAll(){
   if(v.id!=='flat'){
    const missing=['P1','P2','P3','P4','P5','P6'].filter(n=>!m[n]),targets=bearingCandidates(v,d);
    if(missing.length)$('instruction').insertAdjacentHTML('beforeend',`<div class="optional-stars">${missing.map(n=>`<button data-star="${n}">+ ${n} center</button>`).join('')}</div>`);
-   if(targets.length)$('instruction').insertAdjacentHTML('beforeend',`<p class="small">Offscreen star with a visible straight connection from ${v.main}:</p><div class="optional-stars">${targets.map(n=>{const key=bearingKey(v.main,n),saved=d.bearings?.[key];return `<button data-bearing-star="${n}">${saved?'Redo':'Record'} line ${v.main}→${n}${isRecordedConnection(v.main,n)?' · recorded':''}</button>${saved?`<button data-clear-bearing="${key}" aria-label="Remove line ${v.main} to ${n}">×</button>`:''}`}).join('')}</div><p class="small">All point numbers are available. “Recorded” marks a saved connection; confirm that the visible line leads to that star.</p>`);
-   document.querySelectorAll('[data-star]').forEach(b=>b.onclick=()=>{state.optionalTarget=b.dataset.star;state.bearingTarget=null;renderAll()});
+   if(targets.length)$('instruction').insertAdjacentHTML('beforeend',`<p class="small">Offscreen star with a visible straight recorded connection from ${v.main}:</p><div class="optional-stars">${targets.map(n=>{const key=bearingKey(v.main,n),saved=d.bearings?.[key];return `<button data-bearing-star="${n}">${saved?'Redo':'Record'} line axis ${v.main}–${n}${isRecordedConnection(v.main,n)?' · recorded':''}</button>${saved?`<button data-clear-bearing="${key}" aria-label="Remove line ${v.main} to ${n}">×</button>`:''}`}).join('')}</div><p class="small">Two clicks on the rendered line define its axis. The line is not assumed to pass through the star center.</p>`);
+   document.querySelectorAll('[data-star]').forEach(b=>b.onclick=()=>{state.optionalTarget=b.dataset.star;state.bearingTarget=null;state.bearingPointA=null;renderAll()});
    document.querySelectorAll('[data-bearing-star]').forEach(b=>b.onclick=()=>armBearing(b.dataset.bearingStar));
    document.querySelectorAll('[data-clear-bearing]').forEach(b=>b.onclick=()=>{delete d.bearings[b.dataset.clearBearing];renderAll()});
   }
@@ -244,8 +244,8 @@ function fitImage(){const d=current();if(!d.image)return;state.zoom=Math.min(1,(
 function draw(){const d=current(),v=currentDef();if(!d.image){canvas.width=1;canvas.height=1;$('zoomLabel').textContent='';return}canvas.width=Math.round(d.width*state.zoom);canvas.height=Math.round(d.height*state.zoom);ctx.setTransform(state.zoom,0,0,state.zoom,0,0);ctx.drawImage(d.image,0,0);ctx.lineWidth=2/state.zoom;ctx.font=`${15/state.zoom}px system-ui`;ctx.textAlign='left';ctx.textBaseline='middle';
  const chain=captureTopology()?recordedSegmentsFor(v,d):segmentsFor(v,d);if(chain.length){const m=pointMap(v,d);ctx.strokeStyle='#69e6df';for(const seg of chain){ctx.beginPath();ctx.moveTo(m[seg.from].x,m[seg.from].y);ctx.lineTo(m[seg.to].x,m[seg.to].y);ctx.stroke()}}
  const m=pointMap(v,d);
- Object.values(d.bearings||{}).forEach(b=>{const a=m[b.from],q=b.through;if(!a||!q)return;ctx.save();ctx.setLineDash([8/state.zoom,6/state.zoom]);ctx.strokeStyle='#ffcf68';ctx.lineWidth=2/state.zoom;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(q.x,q.y);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#ffcf68';ctx.fillText(`line→${b.to}`,q.x+8/state.zoom,q.y);ctx.restore()});
- if(state.bearingTarget&&v.main&&m[v.main]&&state.cursor){ctx.save();ctx.setLineDash([8/state.zoom,6/state.zoom]);ctx.strokeStyle='#ffcf68';ctx.beginPath();ctx.moveTo(m[v.main].x,m[v.main].y);ctx.lineTo(state.cursor.x,state.cursor.y);ctx.stroke();ctx.restore()}
+ Object.values(d.bearings||{}).forEach(b=>{const legacyAnchor=m[b.from],a=b.line?.a||legacyAnchor,q=b.line?.b||b.through;if(!a||!q)return;ctx.save();ctx.setLineDash([8/state.zoom,6/state.zoom]);ctx.strokeStyle='#ffcf68';ctx.lineWidth=2/state.zoom;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(q.x,q.y);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#ffcf68';ctx.fillText(`line↔${b.to}`,q.x+8/state.zoom,q.y);ctx.restore()});
+ if(state.bearingTarget&&state.cursor){const a=state.bearingPointA||m[v.main];if(a){ctx.save();ctx.setLineDash([8/state.zoom,6/state.zoom]);ctx.strokeStyle='#ffcf68';ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(state.cursor.x,state.cursor.y);ctx.stroke();ctx.restore()}}
  Object.entries(m).forEach(([name,p])=>{const isMain=name===v.main;ctx.beginPath();ctx.fillStyle=isMain?'#ffd66b':'#69e6df';ctx.strokeStyle='#07111a';ctx.arc(p.x,p.y,7/state.zoom,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#fff';ctx.strokeStyle='#07111a';ctx.lineWidth=3/state.zoom;ctx.strokeText(name,p.x+11/state.zoom,p.y);ctx.fillText(name,p.x+11/state.zoom,p.y)});
  if(state.cursor){const p=state.cursor,q=11/state.zoom;ctx.save();ctx.lineWidth=1/state.zoom;ctx.strokeStyle='rgba(190,245,255,.23)';ctx.beginPath();ctx.moveTo(0,p.y);ctx.lineTo(d.width,p.y);ctx.moveTo(p.x,0);ctx.lineTo(p.x,d.height);ctx.stroke();ctx.lineWidth=1.5/state.zoom;ctx.strokeStyle='rgba(220,255,255,.78)';ctx.beginPath();ctx.moveTo(p.x-q,p.y);ctx.lineTo(p.x+q,p.y);ctx.moveTo(p.x,p.y-q);ctx.lineTo(p.x,p.y+q);ctx.stroke();ctx.restore()}
  $('zoomLabel').textContent=`${Math.round(state.zoom*100)}% · ${d.width}×${d.height}`
@@ -258,14 +258,14 @@ function renderReadout(){const v=currentDef(),d=current(),segs=segmentsFor(v,d),
  if(segs.length===2){const obs=segs[0].length/segs[1].length,b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to),flat=b1&&b2?b1/b2:null;html+=`<div class="summary">Adjacent ratio in this view: <strong>${obs.toFixed(6)}</strong>${flat?` · flat ratio: <strong>${flat.toFixed(6)}</strong> · ratio-of-ratios: <strong>${(obs/flat).toFixed(6)}</strong>`:''} · ${Object.keys(m).length} total stars, ${allPairs(v,d).length} pairwise distances</div>`}
  const recorded=recordedSegmentsFor(v,d);
  if(recorded.length){html+='<table><thead><tr><th>Recorded connection</th><th>This view</th><th>Flat baseline</th></tr></thead><tbody>';for(const s of recorded){const base=baselineLength(s.from,s.to);html+=`<tr><td>${s.from}–${s.to}</td><td>${s.length.toFixed(3)} px</td><td>${base?base.toFixed(3)+' px':'—'}</td></tr>`}html+='</tbody></table>'}
- const bearings=Object.values(d.bearings||{});if(bearings.length){html+='<table><thead><tr><th>Bearing-only constraint</th><th>Direction</th><th>Recorded through</th></tr></thead><tbody>';for(const b of bearings){const a=m[b.from],dx=b.through.x-a.x,dy=-(b.through.y-a.y),ang=(Math.atan2(dy,dx)*180/Math.PI+360)%360;html+=`<tr><td>${b.from}→${b.to}</td><td>${ang.toFixed(2)}°</td><td>${b.through.x.toFixed(2)}, ${b.through.y.toFixed(2)}</td></tr>`}html+='</tbody></table><div class="summary">Bearing-only records constrain projected line direction, not target distance.</div>'}
+ const bearings=Object.values(d.bearings||{});if(bearings.length){html+='<table><thead><tr><th>Line-axis constraint</th><th>Axis angle</th><th>Recorded points</th><th>Mode</th></tr></thead><tbody>';for(const b of bearings){const legacyAnchor=m[b.from],a=b.line?.a||legacyAnchor,q=b.line?.b||b.through;if(!a||!q)continue;const dx=q.x-a.x,dy=-(q.y-a.y),ang=((Math.atan2(dy,dx)*180/Math.PI+360)%180);html+=`<tr><td>${b.from}–${b.to}</td><td>${ang.toFixed(2)}°</td><td>${a.x.toFixed(2)}, ${a.y.toFixed(2)} ↔ ${q.x.toFixed(2)}, ${q.y.toFixed(2)}</td><td>${b.line?'2-click line':'legacy star→line'}</td></tr>`}html+='</tbody></table><div class="summary">Line-axis records constrain projected orientation only. Two-click records do not assume the rendered line crosses the star center.</div>'}
  $('readout').innerHTML=html}
 
 canvas.onmousemove=e=>{if(!current().image)return;const r=canvas.getBoundingClientRect();state.cursor={x:(e.clientX-r.left)/state.zoom,y:(e.clientY-r.top)/state.zoom};draw()};
 canvas.onmouseleave=()=>{state.cursor=null;draw()};
 
 canvas.onclick=e=>{const d=current(),v=currentDef();if(!d.image)return;const r=canvas.getBoundingClientRect(),p={x:(e.clientX-r.left)/state.zoom,y:(e.clientY-r.top)/state.zoom};
- if(state.bearingTarget){const from=v.main,to=state.bearingTarget,m=pointMap(v,d),anchor=m[from];if(!from||!anchor)return;if(dist(anchor,p)<8/state.zoom){$('instruction').insertAdjacentHTML('beforeend',' <b>Choose a point farther along the line.</b>');return}const key=bearingKey(from,to),previous=d.bearings[key]?JSON.parse(JSON.stringify(d.bearings[key])):null,markedUnavailable=v.points.includes(to)&&!m[to]&&!d.unavailable.includes(to);d.bearings[key]={from,to,through:p};if(markedUnavailable)d.unavailable.push(to);d.history.push({name:key,type:'bearing',from,to,previous,markedUnavailable});state.bearingTarget=null;renderAll();return}
+ if(state.bearingTarget){const from=v.main,to=state.bearingTarget,m=pointMap(v,d);if(!from||!m[from])return;if(!state.bearingPointA){state.bearingPointA=p;renderAll();return}if(dist(state.bearingPointA,p)<12/state.zoom){$('instruction').insertAdjacentHTML('beforeend',' <b>Choose the second point farther along the same line.</b>');return}const key=bearingKey(from,to),previous=d.bearings[key]?JSON.parse(JSON.stringify(d.bearings[key])):null,markedUnavailable=v.points.includes(to)&&!m[to]&&!d.unavailable.includes(to);d.bearings[key]={from,to,type:'line2',line:{a:state.bearingPointA,b:p}};if(markedUnavailable)d.unavailable.push(to);d.history.push({name:key,type:'bearing',from,to,previous,markedUnavailable});state.bearingTarget=null;state.bearingPointA=null;renderAll();return}
  const required=nextRequired(v,d),target=state.optionalTarget||required;if(!target)return;if(v.points.includes(target))d.points[v.points.indexOf(target)]=p;else d.extra[target]=p;state.optionalTarget=null;d.unavailable=d.unavailable.filter(n=>n!==target);d.history.push({name:target,type:'point'});renderAll()};
 
 function chooseImageRecovery(oldWidth,oldHeight,newWidth,newHeight){
@@ -303,24 +303,24 @@ async function setViewImage(blob,fileName,viewId=state.active,storagePath=null){
  if(d.imageUrl)URL.revokeObjectURL(d.imageUrl);
  d.image=img;d.imageBlob=blob;d.imageUrl=url;d.fileName=fileName||`pasted-${viewId}.png`;d.mimeType=blob.type||'image/png';d.storagePath=storagePath;
  if(recovery==='clear'){d.points=[];d.extra={};d.bearings={};d.unavailable=[];d.history=[]}
- d.width=img.naturalWidth;d.height=img.naturalHeight;state.optionalTarget=null;state.cursor=null;if(viewId===state.active)fitImage();renderAll();return true;
+ d.width=img.naturalWidth;d.height=img.naturalHeight;state.optionalTarget=null;state.bearingPointA=null;state.cursor=null;if(viewId===state.active)fitImage();renderAll();return true;
 }
 
 $('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{await setViewImage(f,f.name)}catch(error){setStatus('dbStatus',error.message,'error')}finally{e.target.value=''}};
 
-$('undo').onclick=()=>{const d=current(),v=currentDef(),entry=d.history.pop();if(!entry)return;const name=typeof entry==='string'?entry:entry.name,type=typeof entry==='string'?'point':entry.type;if(type==='unavailable')d.unavailable=d.unavailable.filter(n=>n!==name);else if(type==='bearing'){if(entry.previous)d.bearings[name]=entry.previous;else delete d.bearings[name];if(entry.markedUnavailable)d.unavailable=d.unavailable.filter(n=>n!==entry.to)}else if(Object.hasOwn(d.extra,name))delete d.extra[name];else d.points[v.points.indexOf(name)]=null;state.optionalTarget=null;state.bearingTarget=null;renderAll()};$('clearView').onclick=()=>{const d=current();d.points=[];d.extra={};d.bearings={};d.unavailable=[];d.history=[];state.optionalTarget=null;state.bearingTarget=null;renderAll()};
+$('undo').onclick=()=>{const d=current(),v=currentDef(),entry=d.history.pop();if(!entry)return;const name=typeof entry==='string'?entry:entry.name,type=typeof entry==='string'?'point':entry.type;if(type==='unavailable')d.unavailable=d.unavailable.filter(n=>n!==name);else if(type==='bearing'){if(entry.previous)d.bearings[name]=entry.previous;else delete d.bearings[name];if(entry.markedUnavailable)d.unavailable=d.unavailable.filter(n=>n!==entry.to)}else if(Object.hasOwn(d.extra,name))delete d.extra[name];else d.points[v.points.indexOf(name)]=null;state.optionalTarget=null;state.bearingTarget=null;state.bearingPointA=null;renderAll()};$('clearView').onclick=()=>{const d=current();d.points=[];d.extra={};d.bearings={};d.unavailable=[];d.history=[];state.optionalTarget=null;state.bearingTarget=null;state.bearingPointA=null;renderAll()};
 
 $('zoomIn').onclick=()=>{state.zoom=Math.min(4,state.zoom*1.25);draw()};$('zoomOut').onclick=()=>{state.zoom=Math.max(.1,state.zoom/1.25);draw()};$('zoomReset').onclick=fitImage;
 
-function exportData(){const out={...(captureTopology()?{recordedTopology:JSON.parse(JSON.stringify(captureTopology()))}:{}),schema:MEASUREMENT_SCHEMA,toolVersion:TOOL_VERSION,character:$('character').value.trim(),createdAt:new Date().toISOString(),cameraCalibration:CAMERA_CALIBRATION,views:{}};for(const v of views){const d=state.views[v.id],segs=segmentsFor(v,d),m=pointMap(v,d);const format=seg=>{const base=baselineLength(seg.from,seg.to);return{from:seg.from,to:seg.to,lengthPx:+seg.length.toFixed(6),flatLengthPx:base?+base.toFixed(6):null,rawToFlat:base?+(seg.length/base).toFixed(9):null}};out.views[v.id]={title:v.title,sequence:v.label,main:v.main,unavailablePoints:[...d.unavailable],image:{fileName:d.fileName,width:d.width,height:d.height,storagePath:d.storagePath,mimeType:d.mimeType,sizeBytes:d.imageBlob?.size||null},points:Object.fromEntries(Object.entries(m).map(([n,p])=>[n,{x:+p.x.toFixed(4),y:+p.y.toFixed(4)}])),bearings:Object.values(d.bearings||{}).map(b=>({from:b.from,to:b.to,through:{x:+b.through.x.toFixed(4),y:+b.through.y.toFixed(4)}})),segments:segs.map(format),recordedSegments:recordedSegmentsFor(v,d).map(format),allPairwiseSegments:allPairs(v,d).map(format)};if(segs.length===2){const b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to);out.views[v.id].adjacentRatio={observed:+(segs[0].length/segs[1].length).toFixed(9),flat:b1&&b2?+(b1/b2).toFixed(9):null,ratioOfRatios:b1&&b2?+((segs[0].length/segs[1].length)/(b1/b2)).toFixed(9):null}}}return out}
+function exportData(){const out={...(captureTopology()?{recordedTopology:JSON.parse(JSON.stringify(captureTopology()))}:{}),schema:MEASUREMENT_SCHEMA,toolVersion:TOOL_VERSION,character:$('character').value.trim(),createdAt:new Date().toISOString(),cameraCalibration:CAMERA_CALIBRATION,views:{}};for(const v of views){const d=state.views[v.id],segs=segmentsFor(v,d),m=pointMap(v,d);const format=seg=>{const base=baselineLength(seg.from,seg.to);return{from:seg.from,to:seg.to,lengthPx:+seg.length.toFixed(6),flatLengthPx:base?+base.toFixed(6):null,rawToFlat:base?+(seg.length/base).toFixed(9):null}};out.views[v.id]={title:v.title,sequence:v.label,main:v.main,unavailablePoints:[...d.unavailable],image:{fileName:d.fileName,width:d.width,height:d.height,storagePath:d.storagePath,mimeType:d.mimeType,sizeBytes:d.imageBlob?.size||null},points:Object.fromEntries(Object.entries(m).map(([n,p])=>[n,{x:+p.x.toFixed(4),y:+p.y.toFixed(4)}])),bearings:Object.values(d.bearings||{}).map(b=>b.line?({from:b.from,to:b.to,type:'line2',line:{a:{x:+b.line.a.x.toFixed(4),y:+b.line.a.y.toFixed(4)},b:{x:+b.line.b.x.toFixed(4),y:+b.line.b.y.toFixed(4)}}}):({from:b.from,to:b.to,type:'starThrough',through:{x:+b.through.x.toFixed(4),y:+b.through.y.toFixed(4)}})),segments:segs.map(format),recordedSegments:recordedSegmentsFor(v,d).map(format),allPairwiseSegments:allPairs(v,d).map(format)};if(segs.length===2){const b1=baselineLength(segs[0].from,segs[0].to),b2=baselineLength(segs[1].from,segs[1].to);out.views[v.id].adjacentRatio={observed:+(segs[0].length/segs[1].length).toFixed(9),flat:b1&&b2?+(b1/b2).toFixed(9):null,ratioOfRatios:b1&&b2?+((segs[0].length/segs[1].length)/(b1/b2)).toFixed(9):null}}}return out}
 function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 
 $('downloadJson').onclick=()=>download(`${$('character').value.trim()||'constellation'}_chain_measurements.json`,JSON.stringify(exportData(),null,2),'application/json');
 
 $('copy').onclick=async()=>{await navigator.clipboard.writeText(JSON.stringify(exportData(),null,2));const b=$('copy'),old=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=old,1000)};
 
-$('downloadCsv').onclick=()=>{const o=exportData(),rows=[['character','view','sequence','main','record_type','image','width','height','from','to','from_x','from_y','to_x','to_y','length_px','flat_length_px','raw_to_flat','is_chain_segment','bearing_through_x','bearing_through_y']];for(const [id,v] of Object.entries(o.views)){for(const seg of v.allPairwiseSegments){const a=v.points[seg.from],b=v.points[seg.to],chain=v.segments.some(x=>x.from===seg.from&&x.to===seg.to);rows.push([o.character,id,v.sequence,v.main||'','distance',v.image.fileName,v.image.width,v.image.height,seg.from,seg.to,a?.x??'',a?.y??'',b?.x??'',b?.y??'',seg.lengthPx,seg.flatLengthPx??'',seg.rawToFlat??'',chain,'',''])}for(const b of v.bearings||[]){const a=v.points[b.from];rows.push([o.character,id,v.sequence,v.main||'','bearing',v.image.fileName,v.image.width,v.image.height,b.from,b.to,a?.x??'',a?.y??'','','','','','','',b.through.x,b.through.y])}}download(`${o.character||'constellation'}_multistar_measurements.csv`,rows.map(r=>r.map(x=>`"${String(x).replaceAll('"','""')}"`).join(',')).join('\n'),'text/csv')};
-$('clearAll').onclick=()=>{if(!confirm('Clear every loaded view, image and measurement?'))return;for(const v of views){if(state.views[v.id].imageUrl)URL.revokeObjectURL(state.views[v.id].imageUrl);state.views[v.id]=emptyView()}state.optionalTarget=null;state.bearingTarget=null;state.cursor=null;renderAll()};
+$('downloadCsv').onclick=()=>{const o=exportData(),rows=[['character','view','sequence','main','record_type','image','width','height','from','to','from_x','from_y','to_x','to_y','length_px','flat_length_px','raw_to_flat','is_chain_segment','bearing_through_x','bearing_through_y','bearing_line_ax','bearing_line_ay','bearing_line_bx','bearing_line_by','bearing_mode']];for(const [id,v] of Object.entries(o.views)){for(const seg of v.allPairwiseSegments){const a=v.points[seg.from],b=v.points[seg.to],chain=v.segments.some(x=>x.from===seg.from&&x.to===seg.to);rows.push([o.character,id,v.sequence,v.main||'','distance',v.image.fileName,v.image.width,v.image.height,seg.from,seg.to,a?.x??'',a?.y??'',b?.x??'',b?.y??'',seg.lengthPx,seg.flatLengthPx??'',seg.rawToFlat??'',chain,'',''])}for(const b of v.bearings||[]){const a=v.points[b.from];rows.push([o.character,id,v.sequence,v.main||'','bearing',v.image.fileName,v.image.width,v.image.height,b.from,b.to,a?.x??'',a?.y??'','','','','','','',b.through?.x??'',b.through?.y??'',b.line?.a?.x??'',b.line?.a?.y??'',b.line?.b?.x??'',b.line?.b?.y??'',b.type||'starThrough'])}}download(`${o.character||'constellation'}_multistar_measurements.csv`,rows.map(r=>r.map(x=>`"${String(x).replaceAll('"','""')}"`).join(',')).join('\n'),'text/csv')};
+$('clearAll').onclick=()=>{if(!confirm('Clear every loaded view, image and measurement?'))return;for(const v of views){if(state.views[v.id].imageUrl)URL.revokeObjectURL(state.views[v.id].imageUrl);state.views[v.id]=emptyView()}state.optionalTarget=null;state.bearingTarget=null;state.bearingPointA=null;state.cursor=null;renderAll()};
 
 function setStatus(id,message,kind=''){const el=$(id);el.textContent=message;el.className=`small ${kind}`}
 
@@ -338,7 +338,7 @@ function validateUpload(payload){if(!payload.character)throw new Error('Enter th
 
 async function sha256(value){const bytes=new TextEncoder().encode(JSON.stringify(value));return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('')}
 
-function importData(payload,{preserveImages=false}={}){if(!payload||typeof payload!=='object'||!payload.views)throw new Error('The saved payload is invalid.');$('character').value=payload.character||'';for(const v of views){const src=payload.views[v.id]||{},old=state.views[v.id],d=emptyView(),points=src.points||{};const retain=preserveImages&&old.image&&old.width===Number(src.image?.width)&&old.height===Number(src.image?.height);if(old.imageUrl&&!retain)URL.revokeObjectURL(old.imageUrl);d.fileName=src.image?.fileName||'';d.width=Number(src.image?.width)||0;d.height=Number(src.image?.height)||0;d.storagePath=src.image?.storagePath||null;d.mimeType=src.image?.mimeType||null;d.unavailable=Array.isArray(src.unavailablePoints)?src.unavailablePoints.filter(n=>v.points.includes(n)):[];d.points=v.points.map(n=>points[n]?{x:Number(points[n].x),y:Number(points[n].y)}:null);d.extra=Object.fromEntries(Object.entries(points).filter(([n])=>!v.points.includes(n)).map(([n,p])=>[n,{x:Number(p.x),y:Number(p.y)}]));d.bearings={};for(const b of Array.isArray(src.bearings)?src.bearings:[]){if(!b||!v.main||b.from!==v.main||!validStarPair(b.from,b.to)||!Number.isFinite(Number(b.through?.x))||!Number.isFinite(Number(b.through?.y)))continue;d.bearings[bearingKey(b.from,b.to)]={from:b.from,to:b.to,through:{x:Number(b.through.x),y:Number(b.through.y)}}}if(retain){d.image=old.image;d.imageBlob=old.imageBlob;d.imageUrl=old.imageUrl;d.mimeType=old.mimeType;d.fileName=old.fileName;d.storagePath=old.storagePath}d.history=[...v.points.filter(n=>points[n]).map(name=>({name,type:'point'})),...d.unavailable.map(name=>({name,type:'unavailable'})),...Object.keys(d.extra).map(name=>({name,type:'point'})),...Object.keys(d.bearings).map(name=>({name,type:'bearing',from:d.bearings[name].from,to:d.bearings[name].to,previous:null,markedUnavailable:false}))];state.views[v.id]=d}state.active='flat';state.zoom=1;state.optionalTarget=null;state.bearingTarget=null;state.cursor=null;renderAll()}
+function importData(payload,{preserveImages=false}={}){if(!payload||typeof payload!=='object'||!payload.views)throw new Error('The saved payload is invalid.');$('character').value=payload.character||'';for(const v of views){const src=payload.views[v.id]||{},old=state.views[v.id],d=emptyView(),points=src.points||{};const retain=preserveImages&&old.image&&old.width===Number(src.image?.width)&&old.height===Number(src.image?.height);if(old.imageUrl&&!retain)URL.revokeObjectURL(old.imageUrl);d.fileName=src.image?.fileName||'';d.width=Number(src.image?.width)||0;d.height=Number(src.image?.height)||0;d.storagePath=src.image?.storagePath||null;d.mimeType=src.image?.mimeType||null;d.unavailable=Array.isArray(src.unavailablePoints)?src.unavailablePoints.filter(n=>v.points.includes(n)):[];d.points=v.points.map(n=>points[n]?{x:Number(points[n].x),y:Number(points[n].y)}:null);d.extra=Object.fromEntries(Object.entries(points).filter(([n])=>!v.points.includes(n)).map(([n,p])=>[n,{x:Number(p.x),y:Number(p.y)}]));d.bearings={};for(const b of Array.isArray(src.bearings)?src.bearings:[]){if(!b||!v.main||b.from!==v.main||!validStarPair(b.from,b.to))continue;const key=bearingKey(b.from,b.to);if(Number.isFinite(Number(b.line?.a?.x))&&Number.isFinite(Number(b.line?.a?.y))&&Number.isFinite(Number(b.line?.b?.x))&&Number.isFinite(Number(b.line?.b?.y))){d.bearings[key]={from:b.from,to:b.to,type:'line2',line:{a:{x:Number(b.line.a.x),y:Number(b.line.a.y)},b:{x:Number(b.line.b.x),y:Number(b.line.b.y)}}}}else if(Number.isFinite(Number(b.through?.x))&&Number.isFinite(Number(b.through?.y))){d.bearings[key]={from:b.from,to:b.to,type:'starThrough',through:{x:Number(b.through.x),y:Number(b.through.y)}}}}if(retain){d.image=old.image;d.imageBlob=old.imageBlob;d.imageUrl=old.imageUrl;d.mimeType=old.mimeType;d.fileName=old.fileName;d.storagePath=old.storagePath}d.history=[...v.points.filter(n=>points[n]).map(name=>({name,type:'point'})),...d.unavailable.map(name=>({name,type:'unavailable'})),...Object.keys(d.extra).map(name=>({name,type:'point'})),...Object.keys(d.bearings).map(name=>({name,type:'bearing',from:d.bearings[name].from,to:d.bearings[name].to,previous:null,markedUnavailable:false}))];state.views[v.id]=d}state.active='flat';state.zoom=1;state.optionalTarget=null;state.bearingTarget=null;state.bearingPointA=null;state.cursor=null;renderAll()}
 
 async function uploadImages(character,payload){
  for(const v of views){const d=state.views[v.id];if(!d.imageBlob||d.storagePath)continue;setStatus('dbStatus',`Uploading ${v.title} image…`);const path=`${signedInUser.id}/${character.avatar_id}/${v.id}`;const {error}=await supabase.storage.from(IMAGE_BUCKET).upload(path,d.imageBlob,{upsert:true,contentType:d.mimeType||d.imageBlob.type||'application/octet-stream'});if(error)throw Error(`Image upload failed for ${v.title}: ${error.message}. Run schema v2.5 if the image bucket is not installed.`);d.storagePath=path;payload.views[v.id].image.storagePath=path}
@@ -378,7 +378,7 @@ $('importJsonFile').onchange=async event=>{
  finally{event.target.value=''}
 };
 
-/* Constellation reconstruction extension v4.7.0 */
+/* Constellation reconstruction extension v4.7.1 */
 
 {
 
@@ -407,7 +407,7 @@ async function loadRecordedTopology(expectedModel){
  originalRender();paint();
 }
 
-const MODEL_VERSION='joint-overview-fixed-offset/v4';
+const MODEL_VERSION='joint-overview-fixed-offset/v4.1';
 
 const originalExport=exportData;
 
@@ -791,6 +791,9 @@ function bearingRow(i,j,u,v){
  put(j,0,-v);put(i,0,v);put(j,1,u);put(i,1,-u);
  return row;
 }
+function payloadTopologyEdges(payload){const e=normalizeRecordedEdges(payload?.recordedTopology?.displayed_edges);return e&&e.length?e:null}
+function payloadHasTopologyEdge(payload,i,j){const edges=payloadTopologyEdges(payload);return !edges||edges.some(([a,b])=>(a===i&&b===j)||(a===j&&b===i))}
+function axisUnitForBearing(src,b,anchor){let a,q;if(Number.isFinite(Number(b.line?.a?.x))&&Number.isFinite(Number(b.line?.a?.y))&&Number.isFinite(Number(b.line?.b?.x))&&Number.isFinite(Number(b.line?.b?.y))){a={x:Number(b.line.a.x),y:Number(b.line.a.y)};q={x:Number(b.line.b.x),y:Number(b.line.b.y)}}else if(Number.isFinite(Number(b.through?.x))&&Number.isFinite(Number(b.through?.y))){a=anchor;q={x:Number(b.through.x),y:Number(b.through.y)}}else return null;const dx=q.x-a.x,dy=-(q.y-a.y),len=Math.hypot(dx,dy);return len>1e-6?{u:dx/len,v:dy/len,a,q,mode:b.line?'line2':'starThrough'}:null}
 function availableBearingObservations(payload){
  const out=[];
  for(let i=0;i<6;i++){
@@ -798,11 +801,9 @@ function availableBearingObservations(payload){
   if(!anchor)continue;
   for(const b of Array.isArray(src?.bearings)?src.bearings:[]){
    if(b?.from!==NAMES[i])continue;
-   const j=NAMES.indexOf(b.to);if(j<0||j===i||src.points?.[b.to])continue;
-   const dx=Number(b.through?.x)-anchor.x,dy=-(Number(b.through?.y)-anchor.y),len=Math.hypot(dx,dy);
-   if(!(len>1e-6))continue;
-   const u=dx/len,v=dy/len;
-   out.push({type:'bearing',i,j,id,anchor,through:{x:Number(b.through.x),y:Number(b.through.y)},u,v,rows:[bearingRow(i,j,u,v)],values:[0]});
+   const j=NAMES.indexOf(b.to);if(j<0||j===i||src.points?.[b.to]||!payloadHasTopologyEdge(payload,i,j))continue;
+   const axis=axisUnitForBearing(src,b,anchor);if(!axis)continue;
+   out.push({type:'bearing',i,j,id,anchor,lineA:axis.a,lineB:axis.q,bearingMode:axis.mode,u:axis.u,v:axis.v,rows:[bearingRow(i,j,axis.u,axis.v)],values:[0]});
   }
  }
  return out;
@@ -866,7 +867,7 @@ function fitOverview(payload,observations,bearings,f){
  const fn=q=>{const P=unpack(q),r=[];
   if(P.some(p=>q[17]-p[2]<=1e-5)||constraints.some(x=>1-P[x.j][2]+P[x.i][2]<=1e-5))return Array(2*observations.length+bearings.length+2*flat.length).fill(1e8);
   for(const x of observations){const d=sub(P[x.j],P[x.i]);r.push(d[0]/(1-d[2])-x.u,d[1]/(1-d[2])-x.v)}
-  for(const x of bearings){const d=sub(P[x.j],P[x.i]),depth=1-d[2],px=d[0]/depth,py=d[1]/depth,mag=Math.hypot(px,py);if(mag<1e-12)r.push(1e3);else r.push(Math.atan2(x.u*py-x.v*px,x.u*px+x.v*py))}
+  for(const x of bearings){const d=sub(P[x.j],P[x.i]),depth=1-d[2],px=d[0]/depth,py=d[1]/depth,mag=Math.hypot(px,py);if(mag<1e-12)r.push(1e3);else{const cross=x.u*py-x.v*px,dotp=x.u*px+x.v*py;r.push(Math.atan2(Math.abs(cross),Math.abs(dotp)))}}
   for(const {i,p} of flat){const a=project(q,P,i);r.push(a[0]-p.x/f,a[1]+p.y/f)}return r;
  };
  // A homogeneous bearing row has a zero-XY seed. Angular residuals have no
@@ -906,9 +907,9 @@ function fitOverview(payload,observations,bearings,f){
 }
 
 function reconstruct(payload,o){
- const f=focal(o),observations=availableObservations(payload,f),bearings=availableBearingObservations(payload),constraints=[...observations,...bearings];
+ const f=focal(o),observations=availableObservations(payload,f),bearings=availableBearingObservations(payload),constraints=[...observations,...bearings],topologyEdges=payloadTopologyEdges(payload)||EDGES;
  const pairs=new Set(observations.map(x=>`${x.i},${x.j}`));
- observations.forEach(x=>x.priority=Math.abs(x.i-x.j)===1&&pairs.has(`${x.j},${x.i}`)?0:Math.abs(x.i-x.j)===1?1:2);
+ const topoPair=(i,j)=>topologyEdges.some(([a,b])=>(a===i&&b===j)||(a===j&&b===i));observations.forEach(x=>x.priority=topoPair(x.i,x.j)&&pairs.has(`${x.j},${x.i}`)?0:topoPair(x.i,x.j)?1:2);
  bearings.forEach(x=>x.priority=1.5);
  constraints.sort((a,b)=>a.priority-b.priority||a.i-b.i||a.j-b.j);
  let constructionRows=[],construction=[],rank=0;const seenBearingPairs=new Set();
@@ -919,14 +920,15 @@ function reconstruct(payload,o){
  if(overview){points=overview.points;construction=constraints;rank=15}
  else{const solution=leastSquares(constructionRows,construction.flatMap(x=>x.values));points=[[0,0,0]];for(let i=1;i<6;i++)points.push(solution.slice((i-1)*3,(i-1)*3+3))}
  const used=new Set(construction.map(constraintKey)),reciprocal=[];
- for(let i=0;i<5;i++){const a=observations.find(x=>x.i===i&&x.j===i+1),b=observations.find(x=>x.i===i+1&&x.j===i);let disagreement=null;if(a&&b){const av=[a.u,a.v],bv=[b.u,b.v],A=norm(av),B=norm(bv);if(A>.000001&&B>.000001)disagreement=Math.acos(clamp(-dot(av,bv)/(A*B),-1,1))*180/Math.PI}reciprocal.push({from:NAMES[i],to:NAMES[i+1],directionDisagreementDeg:disagreement})}
- const lengths=EDGES.map(([i,j])=>norm(sub(points[j],points[i])));
- const angles=points.slice(1,5).map((p,k)=>{const i=k+1,a=sub(points[i-1],p),b=sub(points[i+1],p);return Math.acos(clamp(dot(a,b)/(norm(a)*norm(b)),-1,1))*180/Math.PI});
+ for(const [i,j] of topologyEdges){const a=observations.find(x=>x.i===i&&x.j===j),b=observations.find(x=>x.i===j&&x.j===i);let disagreement=null;if(a&&b){const av=[a.u,a.v],bv=[b.u,b.v],A=norm(av),B=norm(bv);if(A>.000001&&B>.000001)disagreement=Math.acos(clamp(-dot(av,bv)/(A*B),-1,1))*180/Math.PI}reciprocal.push({from:NAMES[i],to:NAMES[j],directionDisagreementDeg:disagreement})}
+ const lengths=topologyEdges.map(([i,j])=>norm(sub(points[j],points[i])));
+ const graphAngles=[];for(let v=0;v<6;v++){const neighbors=topologyEdges.flatMap(([a,b])=>a===v?[b]:b===v?[a]:[]);for(let a=0;a<neighbors.length;a++)for(let b=a+1;b<neighbors.length;b++){const i=neighbors[a],j=neighbors[b],va=sub(points[i],points[v]),vb=sub(points[j],points[v]);graphAngles.push({vertex:NAMES[v],from:NAMES[i],to:NAMES[j],angleDeg:Math.acos(clamp(dot(va,vb)/(norm(va)*norm(vb)),-1,1))*180/Math.PI})}}
+ const legacyAngles=points.slice(1,5).map((p,k)=>{const i=k+1,a=sub(points[i-1],p),b=sub(points[i+1],p);return Math.acos(clamp(dot(a,b)/(norm(a)*norm(b)),-1,1))*180/Math.PI});
  const checks=observations.map(obs=>{const d=sub(points[obs.j],points[obs.i]),depth=1-d[2],predicted=depth>0?{x:obs.anchor.x+f*d[0]/depth,y:obs.anchor.y-f*d[1]/depth}:null;return {type:'point',view:obs.id,star:NAMES[obs.j],main:NAMES[obs.i],kind:used.has(constraintKey(obs))?'construction':'held-out',measured:{x:obs.measured.x,y:obs.measured.y},predicted,errorPx:predicted?Math.hypot(predicted.x-obs.measured.x,predicted.y-obs.measured.y):null,behindCamera:depth<=0}});
- for(const b of bearings){const d=sub(points[b.j],points[b.i]),depth=1-d[2],px=depth>0?d[0]/depth:null,py=depth>0?d[1]/depth:null,mag=px===null?0:Math.hypot(px,py),cos=mag?clamp((b.u*px+b.v*py)/mag,-1,1):null;checks.push({type:'bearing',view:b.id,star:NAMES[b.j],main:NAMES[b.i],kind:used.has(constraintKey(b))?'construction':'held-out',measured:{x:b.through.x,y:b.through.y},predicted:null,errorPx:null,bearingErrorDeg:cos===null?null:Math.acos(cos)*180/Math.PI,behindCamera:depth<=0})}
+ for(const b of bearings){const d=sub(points[b.j],points[b.i]),depth=1-d[2],px=depth>0?d[0]/depth:null,py=depth>0?d[1]/depth:null,mag=px===null?0:Math.hypot(px,py),cos=mag?clamp(Math.abs((b.u*px+b.v*py)/mag),-1,1):null;checks.push({type:'bearing',view:b.id,star:NAMES[b.j],main:NAMES[b.i],kind:used.has(constraintKey(b))?'construction':'held-out',measured:{a:{...b.lineA},b:{...b.lineB}},bearingMode:b.bearingMode,predicted:null,errorPx:null,bearingErrorDeg:cos===null?null:Math.acos(cos)*180/Math.PI,behindCamera:depth<=0})}
  if(overview)checks.push(...overview.checks);
  const constraintStatus=NAMES.map((name,i)=>{if(i===0)return {star:name,status:'gauge anchor',sightings:observations.filter(x=>x.j===i).length,bearings:bearings.filter(x=>x.j===i).length};const sightings=observations.filter(x=>x.j===i).length,bearingCount=bearings.filter(x=>x.j===i).length,direct=observations.some(x=>(x.i===i||x.j===i)&&pairs.has(`${x.j},${x.i}`));return {star:name,status:direct?'direct reciprocal':sightings?'indirectly solved':bearingCount?'bearing-constrained':'indirectly solved',sightings,bearings:bearingCount}});
- return {algorithm:MODEL_VERSION,points,edges:EDGES,lengths,ratios:lengths.map(x=>x/lengths[0]),anglesDeg:angles,reciprocal,reprojection:checks,constraintStatus,rank,zoomRank,overviewCamera:overview?.camera||null,jointRank:overview?.rank||null,initialization:overview?.initialization||null,overviewNote,bearingObservationCount:bearings.length,availableObservationCount:observations.length+bearings.length+(overview?.observationCount||0),constructionObservationCount:construction.length+(overview?.observationCount||0),camera:{...o,focalLengthPx:f,selectedOffset:1},assumptions:{parallelAxes:true,equalSelectedOffsets:true,selectedStarOnOpticalAxis:true,unscaledCrops:true}};
+ return {algorithm:MODEL_VERSION,points,edges:topologyEdges,lengths,ratios:lengths.map(x=>x/lengths[0]),graphAngles,anglesDeg:legacyAngles,metricBasis:payloadTopologyEdges(payload)?'recordedTopology':'clickOrderFallback',reciprocal,reprojection:checks,constraintStatus,rank,zoomRank,overviewCamera:overview?.camera||null,jointRank:overview?.rank||null,initialization:overview?.initialization||null,overviewNote,bearingObservationCount:bearings.length,availableObservationCount:observations.length+bearings.length+(overview?.observationCount||0),constructionObservationCount:construction.length+(overview?.observationCount||0),camera:{...o,focalLengthPx:f,selectedOffset:1},assumptions:{parallelAxes:true,equalSelectedOffsets:true,selectedStarOnOpticalAxis:true,unscaledCrops:true,lineAxisTwoClick:true}};
 }
 
 function rms(rows){
@@ -1010,23 +1012,12 @@ function summarize(){
 
  <th>Reciprocal direction error</th></tr></thead><tbody>
 
- ${model.lengths.map((l,i)=>`<tr>
-
- <td>${NAMES[i]}–${NAMES[i+1]}</td><td>${fmt(l,6)}</td>
-
- <td>${fmt(model.ratios[i],6)}</td>
-
- <td>${fmt(model.reciprocal[i].directionDisagreementDeg)}°</td></tr>`).join('')}
+ ${model.lengths.map((l,i)=>{const [a,b]=model.edges[i],r=model.reciprocal[i];return `<tr><td>${NAMES[a]}–${NAMES[b]}</td><td>${fmt(l,6)}</td><td>${fmt(model.ratios[i],6)}</td><td>${fmt(r?.directionDisagreementDeg)}°</td></tr>`}).join('')}
 
  </tbody></table>
 
- <table><thead><tr><th>Vertex</th><th>Interior 3D angle</th><th>Relative depth</th></tr></thead>
-
- <tbody>${NAMES.map((n,i)=>`<tr><td>${n}</td>
-
- <td>${i>0&&i<5?fmt(model.anglesDeg[i-1])+'°':'—'}</td>
-
- <td>${fmt(model.points[i][2],6)}</td></tr>`).join('')}</tbody></table>
+ <table><thead><tr><th>Point</th><th>Relative depth</th></tr></thead><tbody>${NAMES.map((n,i)=>`<tr><td>${n}</td><td>${fmt(model.points[i][2],6)}</td></tr>`).join('')}</tbody></table>
+ ${model.graphAngles?.length?`<table><thead><tr><th>Vertex</th><th>Incident edges</th><th>3D angle</th></tr></thead><tbody>${model.graphAngles.map(a=>`<tr><td>${a.vertex}</td><td>${a.from}–${a.vertex}–${a.to}</td><td>${fmt(a.angleDeg)}°</td></tr>`).join('')}</tbody></table>`:''}
 
  <p class="geo-note">*Lengths use camera-to-selected-star distance = 1.
 
@@ -1130,7 +1121,7 @@ function selectedView(i){
 
  ${rows.map(r=>`<tr${r.behindCamera||r.type==='bearing'&&r.bearingErrorDeg>3||r.type!=='bearing'&&r.errorPx>fitThreshold()?' style="background:#30291a;color:#ffe2a3"':''}><td>${r.star}${r.type==='bearing'?' (line)':''}</td><td>${r.kind}</td>
 
- <td>${r.type==='bearing'?'direction through '+fmt(r.measured.x,1)+', '+fmt(r.measured.y,1):fmt(r.measured.x,1)+', '+fmt(r.measured.y,1)}</td>
+ <td>${r.type==='bearing'?(r.measured?.a?'line '+fmt(r.measured.a.x,1)+', '+fmt(r.measured.a.y,1)+' ↔ '+fmt(r.measured.b.x,1)+', '+fmt(r.measured.b.y,1):'line axis'):fmt(r.measured.x,1)+', '+fmt(r.measured.y,1)}</td>
 
  <td>${r.type==='bearing'?'model ray':r.predicted?fmt(r.predicted.x,1)+', '+fmt(r.predicted.y,1):'Behind camera'}</td>
 
@@ -1403,20 +1394,23 @@ gc.addEventListener('wheel',e=>{
 
 new ResizeObserver(resizeGeometry).observe(gc);
 
-$('geoCalculate').onclick=()=>{
-
+$('geoCalculate').onclick=async()=>{
  try{
-
+  // If topology was not imported with the measurement, fetch it before solving so
+  // edge-specific priorities, bearing filtering, lengths and angles use the real graph.
+  if(!captureTopology()&&signedInUser){
+   let character;try{character=selectedCharacter()}catch{}
+   if(character){
+    const {data,error}=await supabase.from('constellation_measurements').select('id,character_id,displayed_edges,line_fit_class,updated_at').eq('character_id',character.avatar_id).eq('owner_id',signedInUser.id).order('updated_at',{ascending:false}).order('id',{ascending:false}).limit(1).maybeSingle();
+    if(error)throw Error(`Connection lookup failed: ${error.message}`);
+    if(data&&normalizeRecordedEdges(data.displayed_edges)!==null)recordedTopology={...data,character:characterLabel(character)};
+   }
+  }
   const p=originalExport(),o=options();
-
   model=reconstruct(p,o);modelKey=fingerprint();overlay=null;overlaySelection='';overlayGeneration++;
-
   searchResults=[];searchGeneration++;$('geoMatches').replaceChildren();
-
   summarize();topView();updateButtons();loadRecordedTopology(model);
-
  }catch(e){setStatus('geoStatus',e.message,'error')}
-
 };
 
 $('geoTop').onclick=()=>topView();
