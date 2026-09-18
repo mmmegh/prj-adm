@@ -60,7 +60,7 @@ canvas{display:block;max-width:none;cursor:crosshair}.empty{position:absolute;in
 
 <body>
 
-<header><h1>Constellation measurement tool · v4.7.0</h1><div class="sub">Record star centers and visible connecting lines. Point numbers follow constellation order, not the drawn connections. Coordinates use original-image pixels.</div></header>
+<header><h1>Constellation measurement tool · v4.7.2</h1><div class="sub">Record star centers and visible connecting lines. Point numbers follow constellation order, not the drawn connections. Coordinates use original-image pixels.</div></header>
 
 <main>
 
@@ -128,7 +128,7 @@ const databaseReady=(async()=>{
  }catch{return null}
 })();
 
-const TOOL_VERSION='4.7.1';
+const TOOL_VERSION='4.7.2';
 
 const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
 
@@ -553,6 +553,8 @@ panel.innerHTML=`
 
  <button id="geoFit" disabled>Fit / recenter</button>
 
+ <button id="geoDepthRemoved" disabled>Depth removed (XY)</button>
+
  <button id="geoOverview" disabled>Overview measurements</button>
 
  <button id="geoRemoveOverlay" disabled>Clear comparison</button>
@@ -614,6 +616,14 @@ panel.innerHTML=`
  Top view now reproduces the fitted overview camera itself when a joint overview fit exists: it uses the fitted lateral camera translation and perspective distance instead of recentering the constellation on a generic camera. Gold is the 3D model projected through that camera; faint cyan is the recorded flat view mapped through the same principal point and focal length. Dragging leaves the exact overview projection and returns to free orbit.
 
  Overview measurements compares recorded points with fitted predictions when the overview is used.
+
+ </p>
+
+ <p class="geo-note">
+
+ Depth removed (XY) uses the solved 3D world coordinates but sets aside the Z axis entirely.
+ It is an orthographic view of X/Y, so it removes both perspective foreshortening and the visible
+ displacement caused by depth. It is useful for comparing the recovered lateral shape to a genuinely flat pattern.
 
  </p>
 
@@ -691,6 +701,7 @@ let screenStars=[],pointer=null,cssWidth=1,cssHeight=1;
 
 let overviewMode=false;
 let overviewProjectionMode=false;
+let depthRemovedMode=false;
 
 function options(){
 
@@ -947,7 +958,7 @@ function invalidate(){
 
  if(model&&modelKey!==fingerprint()){
 
-  model=null;overlay=null;overlaySelection='';overlayGeneration++;searchResults=[];searchGeneration++;
+  model=null;overlay=null;overlaySelection='';overlayGeneration++;searchResults=[];searchGeneration++;depthRemovedMode=false;
 
   $('geoMetrics').replaceChildren();$('geoFitWarnings').replaceChildren();
 
@@ -973,7 +984,7 @@ function updateButtons(){
 
  const has=Boolean(currentValid());
 
- for(const id of ['geoTop','geoFit','geoStl'])$(id).disabled=!has;
+ for(const id of ['geoTop','geoFit','geoDepthRemoved','geoStl'])$(id).disabled=!has;
 
  $('geoOverview').disabled=!has||!NAMES.some(n=>payload?.views?.flat?.points?.[n]);
 
@@ -1058,7 +1069,7 @@ function fitView(reset=false){
 
  if(!model)return;
 
- overviewMode=false;overviewProjectionMode=false;camera.selected=null;
+ overviewMode=false;overviewProjectionMode=false;depthRemovedMode=false;camera.selected=null;
 
  if(reset){camera.yaw=0;camera.pitch=0}
 
@@ -1078,7 +1089,7 @@ function fitView(reset=false){
 
 function topView(){
  if(!model)return;
- overviewMode=false;camera.selected=null;camera.yaw=0;camera.pitch=0;
+ overviewMode=false;depthRemovedMode=false;camera.selected=null;camera.yaw=0;camera.pitch=0;
  const oc=model.overviewCamera;
  if(oc?.translation?.length===3){
   // Reproduce the actual fitted flat-overview camera instead of recentering the
@@ -1099,11 +1110,22 @@ function topView(){
  $('geoReprojection').replaceChildren();paint();
 }
 
+
+function depthRemovedView(){
+ if(!currentValid())return;
+ overviewMode=false;overviewProjectionMode=false;depthRemovedMode=true;camera.selected=null;
+ $('geoReprojection').innerHTML=`
+ <p><b>Depth removed:</b> orthographic XY projection of the solved 3D constellation.
+ Z is ignored entirely, so this shows the reconstructed lateral shape without perspective
+ foreshortening or depth displacement.</p>`;
+ paint();
+}
+
 function selectedView(i){
 
  if(!currentValid())return;
 
- overviewMode=false;overviewProjectionMode=false;camera.selected=i;camera.yaw=0;camera.pitch=0;
+ overviewMode=false;overviewProjectionMode=false;depthRemovedMode=false;camera.selected=i;camera.yaw=0;camera.pitch=0;
 
  camera.target=model.points[i];camera.distance=1;
 
@@ -1266,6 +1288,32 @@ function paint(){
 
  }
 
+
+ if(depthRemovedMode){
+  // True depth-removed projection: use solved world X/Y directly and ignore Z.
+  // This is deliberately not the recorded flat screenshot and not a perspective camera view.
+  const xy=model.points.map(P=>[P[0],P[1]]);
+  const xs=xy.map(p=>p[0]),ys=xy.map(p=>p[1]);
+  const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
+  const spanX=Math.max(maxx-minx,1e-9),spanY=Math.max(maxy-miny,1e-9);
+  const scale=Math.min((cssWidth-70)/spanX,(cssHeight-70)/spanY);
+  const cx=(minx+maxx)/2,cy=(miny+maxy)/2;
+  const cv=p=>[cssWidth/2+(p[0]-cx)*scale,cssHeight/2-(p[1]-cy)*scale];
+  const p=xy.map(cv);
+
+  if(overlay){
+   const op=overlay.points.map(P=>cv([P[0],P[1]]));
+   overlay.edges.forEach(([i,j])=>{if(op[i]&&op[j])line(op[i],op[j],'#c796ff',3)});
+   op.forEach((q,i)=>{if(q)marker(q,'#c796ff',overlay.labels[i],3)});
+  }
+
+  displayEdges().forEach(([i,j])=>{if(p[i]&&p[j])line(p[i],p[j],'#69e6df',3)});
+  p.forEach((q,i)=>{marker(q,'#ffd66b',NAMES[i],6);screenStars.push({i,p:q})});
+  gx.fillStyle='#9eb2c1';gx.font='12px system-ui';
+  gx.fillText('Depth removed (XY) • Z ignored • orthographic',12,20);
+  return;
+ }
+
  if(overviewProjectionMode&&model.overviewCamera){
   const oc=model.overviewCamera,[tx,ty,tz]=oc.translation;
   const raw=model.points.map(P=>{const d=tz-P[2];return d>1e-8?[(P[0]-tx)/d,-(P[1]-ty)/d]:null});
@@ -1328,7 +1376,7 @@ function paint(){
 
 gc.onpointerdown=e=>{
 
- if(!model||overviewMode)return;
+ if(!model||overviewMode||depthRemovedMode)return;
 
  pointer={x:e.clientX,y:e.clientY,moved:false};
 
@@ -1379,7 +1427,7 @@ gc.onpointercancel=()=>pointer=null;
 
 gc.addEventListener('wheel',e=>{
 
- if(!model||overviewMode||camera.selected!==null)return;
+ if(!model||overviewMode||depthRemovedMode||camera.selected!==null)return;
 
  e.preventDefault();
  overviewProjectionMode=false;
@@ -1409,7 +1457,11 @@ $('geoCalculate').onclick=async()=>{
   const p=originalExport(),o=options();
   model=reconstruct(p,o);modelKey=fingerprint();overlay=null;overlaySelection='';overlayGeneration++;
   searchResults=[];searchGeneration++;$('geoMatches').replaceChildren();
-  summarize();topView();updateButtons();loadRecordedTopology(model);
+  summarize();updateButtons();loadRecordedTopology(model);
+  // The old build entered the fitted overview-camera projection immediately, which
+  // could look skewed or oddly framed on first calculation. Let layout settle, size
+  // the canvas, then start from a stable centered 3D view instead.
+  requestAnimationFrame(()=>{resizeGeometry();fitView(true)});
  }catch(e){setStatus('geoStatus',e.message,'error')}
 };
 
@@ -1417,7 +1469,9 @@ $('geoTop').onclick=()=>topView();
 
 $('geoFit').onclick=()=>fitView();
 
-$('geoOverview').onclick=()=>{overviewProjectionMode=false;overviewMode=true;const rows=model.reprojection.filter(r=>r.view==='flat');$('geoReprojection').innerHTML=rows.length?`<p>Overview points used in the joint fit; these are not held-out checks.</p><table><thead><tr><th>Star</th><th>Measured x, y</th><th>Predicted x, y</th><th>Error</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.star}</td><td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td><td>${fmt(r.predicted.x,1)}, ${fmt(r.predicted.y,1)}</td><td>${fmt(r.errorPx,2)} px</td></tr>`).join('')}</tbody></table>`:'';paint()};
+$('geoDepthRemoved').onclick=()=>depthRemovedView();
+
+$('geoOverview').onclick=()=>{depthRemovedMode=false;overviewProjectionMode=false;overviewMode=true;const rows=model.reprojection.filter(r=>r.view==='flat');$('geoReprojection').innerHTML=rows.length?`<p>Overview points used in the joint fit; these are not held-out checks.</p><table><thead><tr><th>Star</th><th>Measured x, y</th><th>Predicted x, y</th><th>Error</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.star}</td><td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td><td>${fmt(r.predicted.x,1)}, ${fmt(r.predicted.y,1)}</td><td>${fmt(r.errorPx,2)} px</td></tr>`).join('')}</tbody></table>`:'';paint()};
 
 document.querySelectorAll('[data-geo-star]').forEach(b=>b.onclick=()=>selectedView(Number(b.dataset.geoStar)));
 
@@ -1478,7 +1532,7 @@ exportData=function(){
 
 importData=function(payload,importOptions={}){
 
- model=null;overlay=null;overlaySelection='';overlayGeneration++;searchResults=[];searchGeneration++;
+ model=null;overlay=null;overlaySelection='';overlayGeneration++;searchResults=[];searchGeneration++;depthRemovedMode=false;
  $('geoFitWarnings').replaceChildren();
  $('geoMetrics').replaceChildren();
  $('geoReprojection').replaceChildren();
@@ -2026,7 +2080,9 @@ $('geoStl').onclick=async()=>{
 
 updateButtons();
 
-resizeGeometry();
+// Defer the first canvas sizing until CSS grid/layout has completed. This avoids
+// the 1px/half-laid-out first frame seen on some browser/window sizes.
+requestAnimationFrame(resizeGeometry);
 
 }
 
@@ -2059,7 +2115,7 @@ databaseReady.then(client=>{
  document.dispatchEvent(new Event('database-ready'));
 });
 
-window.onresize=()=>{if(current().image)fitImage()};renderAll();
+window.onresize=()=>{if(current().image)fitImage();requestAnimationFrame(resizeGeometry)};renderAll();requestAnimationFrame(resizeGeometry);
 
 </script>
 
