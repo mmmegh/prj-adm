@@ -60,7 +60,7 @@ canvas{display:block;max-width:none;cursor:crosshair}.empty{position:absolute;in
 
 <body>
 
-<header><h1>Constellation measurement tool · v4.7.2</h1><div class="sub">Record star centers and visible connecting lines. Point numbers follow constellation order, not the drawn connections. Coordinates use original-image pixels.</div></header>
+<header><h1>Constellation measurement tool · v4.7.3</h1><div class="sub">Record star centers and visible connecting lines. Point numbers follow constellation order, not the drawn connections. Coordinates use original-image pixels.</div></header>
 
 <main>
 
@@ -128,7 +128,7 @@ const databaseReady=(async()=>{
  }catch{return null}
 })();
 
-const TOOL_VERSION='4.7.2';
+const TOOL_VERSION='4.7.3';
 
 const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
 
@@ -378,7 +378,7 @@ $('importJsonFile').onchange=async event=>{
  finally{event.target.value=''}
 };
 
-/* Constellation reconstruction extension v4.7.1 */
+/* Constellation reconstruction extension v4.7.3 */
 
 {
 
@@ -917,6 +917,32 @@ function fitOverview(payload,observations,bearings,f){
  return {points,rank,initialization,observationCount:flat.length,camera:{translation:[q[15],q[16],q[17]],principalPointPx:{x:q[18]*f,y:-q[19]*f}},checks:flat.map(({i,p})=>{const a=project(q,points,i),predicted={x:a[0]*f,y:-a[1]*f};return {type:'point',view:'flat',star:NAMES[i],main:'Overview',kind:'construction',measured:{...p},predicted,errorPx:Math.hypot(predicted.x-p.x,predicted.y-p.y),behindCamera:false}})};
 }
 
+function depthRemovedMetrics(points,topologyEdges){
+ // Orthographic XY projection of the solved world points. Z is deliberately
+ // discarded before any metric is calculated, so these are true flattened
+ // measurements rather than 3D values copied into the flattened view.
+ const xy=points.map(p=>[p[0],p[1]]);
+ const delta=(a,b)=>[b[0]-a[0],b[1]-a[1]];
+ const len=v=>Math.hypot(v[0],v[1]);
+ const lengths=topologyEdges.map(([i,j])=>len(delta(xy[i],xy[j])));
+ const base=lengths[0];
+ const ratios=lengths.map(x=>base>1e-12?x/base:null);
+ const graphAngles=[];
+ for(let v=0;v<xy.length;v++){
+  const neighbors=topologyEdges.flatMap(([a,b])=>a===v?[b]:b===v?[a]:[]);
+  for(let a=0;a<neighbors.length;a++)for(let b=a+1;b<neighbors.length;b++){
+   const i=neighbors[a],j=neighbors[b],va=delta(xy[v],xy[i]),vb=delta(xy[v],xy[j]);
+   const A=len(va),B=len(vb);
+   graphAngles.push({vertex:NAMES[v],from:NAMES[i],to:NAMES[j],angleDeg:A>1e-12&&B>1e-12?Math.acos(clamp((va[0]*vb[0]+va[1]*vb[1])/(A*B),-1,1))*180/Math.PI:null});
+  }
+ }
+ const anglesDeg=xy.slice(1,5).map((p,k)=>{
+  const i=k+1,a=delta(p,xy[i-1]),b=delta(p,xy[i+1]),A=len(a),B=len(b);
+  return A>1e-12&&B>1e-12?Math.acos(clamp((a[0]*b[0]+a[1]*b[1])/(A*B),-1,1))*180/Math.PI:null;
+ });
+ return {projection:'orthographic-xy',removedAxis:'z',pointLabels:[...NAMES],points:xy,edges:topologyEdges.map(e=>[...e]),lengths,ratios,graphAngles,anglesDeg,units:{coordinates:'reconstruction units',lengths:'reconstruction units',angles:'degrees'}};
+}
+
 function reconstruct(payload,o){
  const f=focal(o),observations=availableObservations(payload,f),bearings=availableBearingObservations(payload),constraints=[...observations,...bearings],topologyEdges=payloadTopologyEdges(payload)||EDGES;
  const pairs=new Set(observations.map(x=>`${x.i},${x.j}`));
@@ -935,11 +961,12 @@ function reconstruct(payload,o){
  const lengths=topologyEdges.map(([i,j])=>norm(sub(points[j],points[i])));
  const graphAngles=[];for(let v=0;v<6;v++){const neighbors=topologyEdges.flatMap(([a,b])=>a===v?[b]:b===v?[a]:[]);for(let a=0;a<neighbors.length;a++)for(let b=a+1;b<neighbors.length;b++){const i=neighbors[a],j=neighbors[b],va=sub(points[i],points[v]),vb=sub(points[j],points[v]);graphAngles.push({vertex:NAMES[v],from:NAMES[i],to:NAMES[j],angleDeg:Math.acos(clamp(dot(va,vb)/(norm(va)*norm(vb)),-1,1))*180/Math.PI})}}
  const legacyAngles=points.slice(1,5).map((p,k)=>{const i=k+1,a=sub(points[i-1],p),b=sub(points[i+1],p);return Math.acos(clamp(dot(a,b)/(norm(a)*norm(b)),-1,1))*180/Math.PI});
+ const depthRemoved=depthRemovedMetrics(points,topologyEdges);
  const checks=observations.map(obs=>{const d=sub(points[obs.j],points[obs.i]),depth=1-d[2],predicted=depth>0?{x:obs.anchor.x+f*d[0]/depth,y:obs.anchor.y-f*d[1]/depth}:null;return {type:'point',view:obs.id,star:NAMES[obs.j],main:NAMES[obs.i],kind:used.has(constraintKey(obs))?'construction':'held-out',measured:{x:obs.measured.x,y:obs.measured.y},predicted,errorPx:predicted?Math.hypot(predicted.x-obs.measured.x,predicted.y-obs.measured.y):null,behindCamera:depth<=0}});
  for(const b of bearings){const d=sub(points[b.j],points[b.i]),depth=1-d[2],px=depth>0?d[0]/depth:null,py=depth>0?d[1]/depth:null,mag=px===null?0:Math.hypot(px,py),cos=mag?clamp(Math.abs((b.u*px+b.v*py)/mag),-1,1):null;checks.push({type:'bearing',view:b.id,star:NAMES[b.j],main:NAMES[b.i],kind:used.has(constraintKey(b))?'construction':'held-out',measured:{a:{...b.lineA},b:{...b.lineB}},bearingMode:b.bearingMode,predicted:null,errorPx:null,bearingErrorDeg:cos===null?null:Math.acos(cos)*180/Math.PI,behindCamera:depth<=0})}
  if(overview)checks.push(...overview.checks);
  const constraintStatus=NAMES.map((name,i)=>{if(i===0)return {star:name,status:'gauge anchor',sightings:observations.filter(x=>x.j===i).length,bearings:bearings.filter(x=>x.j===i).length};const sightings=observations.filter(x=>x.j===i).length,bearingCount=bearings.filter(x=>x.j===i).length,direct=observations.some(x=>(x.i===i||x.j===i)&&pairs.has(`${x.j},${x.i}`));return {star:name,status:direct?'direct reciprocal':sightings?'indirectly solved':bearingCount?'bearing-constrained':'indirectly solved',sightings,bearings:bearingCount}});
- return {algorithm:MODEL_VERSION,points,edges:topologyEdges,lengths,ratios:lengths.map(x=>x/lengths[0]),graphAngles,anglesDeg:legacyAngles,metricBasis:payloadTopologyEdges(payload)?'recordedTopology':'clickOrderFallback',reciprocal,reprojection:checks,constraintStatus,rank,zoomRank,overviewCamera:overview?.camera||null,jointRank:overview?.rank||null,initialization:overview?.initialization||null,overviewNote,bearingObservationCount:bearings.length,availableObservationCount:observations.length+bearings.length+(overview?.observationCount||0),constructionObservationCount:construction.length+(overview?.observationCount||0),camera:{...o,focalLengthPx:f,selectedOffset:1},assumptions:{parallelAxes:true,equalSelectedOffsets:true,selectedStarOnOpticalAxis:true,unscaledCrops:true,lineAxisTwoClick:true}};
+ return {algorithm:MODEL_VERSION,points,edges:topologyEdges,lengths,ratios:lengths.map(x=>x/lengths[0]),graphAngles,anglesDeg:legacyAngles,depthRemoved,metricBasis:payloadTopologyEdges(payload)?'recordedTopology':'clickOrderFallback',reciprocal,reprojection:checks,constraintStatus,rank,zoomRank,overviewCamera:overview?.camera||null,jointRank:overview?.rank||null,initialization:overview?.initialization||null,overviewNote,bearingObservationCount:bearings.length,availableObservationCount:observations.length+bearings.length+(overview?.observationCount||0),constructionObservationCount:construction.length+(overview?.observationCount||0),camera:{...o,focalLengthPx:f,selectedOffset:1},assumptions:{parallelAxes:true,equalSelectedOffsets:true,selectedStarOnOpticalAxis:true,unscaledCrops:true,lineAxisTwoClick:true}};
 }
 
 function rms(rows){
@@ -1117,7 +1144,7 @@ function depthRemovedView(){
  $('geoReprojection').innerHTML=`
  <p><b>Depth removed:</b> orthographic XY projection of the solved 3D constellation.
  Z is ignored entirely, so this shows the reconstructed lateral shape without perspective
- foreshortening or depth displacement.</p>`;
+ foreshortening or depth displacement. Flattened XY points, line lengths, ratios, and angles are saved with the reconstruction.</p>`;
  paint();
 }
 
@@ -1292,7 +1319,7 @@ function paint(){
  if(depthRemovedMode){
   // True depth-removed projection: use solved world X/Y directly and ignore Z.
   // This is deliberately not the recorded flat screenshot and not a perspective camera view.
-  const xy=model.points.map(P=>[P[0],P[1]]);
+  const xy=model.depthRemoved?.points||model.points.map(P=>[P[0],P[1]]);
   const xs=xy.map(p=>p[0]),ys=xy.map(p=>p[1]);
   const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
   const spanX=Math.max(maxx-minx,1e-9),spanY=Math.max(maxy-miny,1e-9);
