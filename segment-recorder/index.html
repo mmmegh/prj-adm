@@ -60,7 +60,7 @@ canvas{display:block;max-width:none;cursor:crosshair}.empty{position:absolute;in
 
 <body>
 
-<header><h1>Constellation measurement tool · v4.7.3</h1><div class="sub">Record star centers and visible connecting lines. Point numbers follow constellation order, not the drawn connections. Coordinates use original-image pixels.</div></header>
+<header><h1>Constellation measurement tool · v4.7.4</h1><div class="sub">Record star centers and visible connecting lines. Point numbers follow constellation order, not the drawn connections. Coordinates use original-image pixels.</div></header>
 
 <main>
 
@@ -86,7 +86,7 @@ canvas{display:block;max-width:none;cursor:crosshair}.empty{position:absolute;in
 
     <div class="actions">
 
-      <button id="undo">Undo point</button><button id="clearView" class="danger">Clear view</button>
+      <button id="undo" title="Undo the last constellation recording action (Ctrl+Z / Cmd+Z)">Undo point / line</button><button id="clearView" class="danger">Clear view</button>
 
       <button id="copy">Copy JSON</button><button id="downloadJson">Download JSON</button>
       <button id="importJson">Import JSON</button><input id="importJsonFile" type="file" accept=".json,application/json" hidden>
@@ -128,7 +128,7 @@ const databaseReady=(async()=>{
  }catch{return null}
 })();
 
-const TOOL_VERSION='4.7.3';
+const TOOL_VERSION='4.7.4';
 
 const MEASUREMENT_SCHEMA='constellation-multistar-measurements-v3';
 
@@ -308,7 +308,10 @@ async function setViewImage(blob,fileName,viewId=state.active,storagePath=null){
 
 $('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{await setViewImage(f,f.name)}catch(error){setStatus('dbStatus',error.message,'error')}finally{e.target.value=''}};
 
-$('undo').onclick=()=>{const d=current(),v=currentDef(),entry=d.history.pop();if(!entry)return;const name=typeof entry==='string'?entry:entry.name,type=typeof entry==='string'?'point':entry.type;if(type==='unavailable')d.unavailable=d.unavailable.filter(n=>n!==name);else if(type==='bearing'){if(entry.previous)d.bearings[name]=entry.previous;else delete d.bearings[name];if(entry.markedUnavailable)d.unavailable=d.unavailable.filter(n=>n!==entry.to)}else if(Object.hasOwn(d.extra,name))delete d.extra[name];else d.points[v.points.indexOf(name)]=null;state.optionalTarget=null;state.bearingTarget=null;state.bearingPointA=null;renderAll()};$('clearView').onclick=()=>{const d=current();d.points=[];d.extra={};d.bearings={};d.unavailable=[];d.history=[];state.optionalTarget=null;state.bearingTarget=null;state.bearingPointA=null;renderAll()};
+function undoRecordingAction(){const d=current(),v=currentDef(),entry=d.history.pop();if(!entry)return false;const name=typeof entry==='string'?entry:entry.name,type=typeof entry==='string'?'point':entry.type;if(type==='unavailable')d.unavailable=d.unavailable.filter(n=>n!==name);else if(type==='bearing'){if(entry.previous)d.bearings[name]=entry.previous;else delete d.bearings[name];if(entry.markedUnavailable)d.unavailable=d.unavailable.filter(n=>n!==entry.to)}else if(Object.hasOwn(d.extra,name))delete d.extra[name];else d.points[v.points.indexOf(name)]=null;state.optionalTarget=null;state.bearingTarget=null;state.bearingPointA=null;renderAll();return true}
+$('undo').onclick=undoRecordingAction;
+document.addEventListener('keydown',event=>{if(!(event.ctrlKey||event.metaKey)||event.altKey||event.key.toLowerCase()!=='z'||event.shiftKey)return;const target=event.target;if(target instanceof HTMLElement&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))return;if(undoRecordingAction())event.preventDefault()});
+$('clearView').onclick=()=>{const d=current();d.points=[];d.extra={};d.bearings={};d.unavailable=[];d.history=[];state.optionalTarget=null;state.bearingTarget=null;state.bearingPointA=null;renderAll()};
 
 $('zoomIn').onclick=()=>{state.zoom=Math.min(4,state.zoom*1.25);draw()};$('zoomOut').onclick=()=>{state.zoom=Math.max(.1,state.zoom/1.25);draw()};$('zoomReset').onclick=fitImage;
 
@@ -378,7 +381,7 @@ $('importJsonFile').onchange=async event=>{
  finally{event.target.value=''}
 };
 
-/* Constellation reconstruction extension v4.7.3 */
+/* Constellation reconstruction extension v4.7.4 */
 
 {
 
@@ -419,7 +422,7 @@ let model=null,modelKey='',overlay=null,overlaySelection='',overlayGeneration=0,
 
 let searchGeneration=0;
 
-const camera={yaw:0,pitch:0,distance:3,target:[0,0,0],selected:null};
+const camera={yaw:0,pitch:0,roll:0,distance:3,target:[0,0,0],selected:null};
 
 const add=(a,b)=>a.map((x,i)=>x+b[i]);
 
@@ -559,6 +562,17 @@ panel.innerHTML=`
 
  <button id="geoRemoveOverlay" disabled>Clear comparison</button>
 
+</div>
+
+<div class="geo-row" id="geoRotateControls" aria-label="Rotate 3D constellation in 10 degree increments">
+ <span class="small"><b>Rotate 10°</b></span>
+ <button data-rotate-axis="x" data-rotate-step="-10" disabled>X −</button>
+ <button data-rotate-axis="x" data-rotate-step="10" disabled>X +</button>
+ <button data-rotate-axis="y" data-rotate-step="-10" disabled>Y −</button>
+ <button data-rotate-axis="y" data-rotate-step="10" disabled>Y +</button>
+ <button data-rotate-axis="z" data-rotate-step="-10" disabled>Z −</button>
+ <button data-rotate-axis="z" data-rotate-step="10" disabled>Z +</button>
+ <span class="small" id="geoRotationReadout">X 0° · Y 0° · Z 0°</span>
 </div>
 
 <div class="geo-row" id="geoStarButtons">
@@ -1012,6 +1026,7 @@ function updateButtons(){
  const has=Boolean(currentValid());
 
  for(const id of ['geoTop','geoFit','geoDepthRemoved','geoStl'])$(id).disabled=!has;
+ document.querySelectorAll('[data-rotate-axis]').forEach(b=>b.disabled=!has);
 
  $('geoOverview').disabled=!has||!NAMES.some(n=>payload?.views?.flat?.points?.[n]);
 
@@ -1098,7 +1113,7 @@ function fitView(reset=false){
 
  overviewMode=false;overviewProjectionMode=false;depthRemovedMode=false;camera.selected=null;
 
- if(reset){camera.yaw=0;camera.pitch=0}
+ if(reset){camera.yaw=0;camera.pitch=0;camera.roll=0}
 
  const {c,r}=centerAndRadius();
 
@@ -1110,13 +1125,13 @@ function fitView(reset=false){
 
  camera.distance=r/Math.sin(half)*1.12;
 
- $('geoReprojection').replaceChildren();paint();
+ $('geoReprojection').replaceChildren();updateRotationReadout();paint();
 
 }
 
 function topView(){
  if(!model)return;
- overviewMode=false;depthRemovedMode=false;camera.selected=null;camera.yaw=0;camera.pitch=0;
+ overviewMode=false;depthRemovedMode=false;camera.selected=null;camera.yaw=0;camera.pitch=0;camera.roll=0;
  const oc=model.overviewCamera;
  if(oc?.translation?.length===3){
   // Reproduce the actual fitted flat-overview camera instead of recentering the
@@ -1134,25 +1149,25 @@ function topView(){
   camera.distance=r/Math.sin(half)*1.12;
   overviewProjectionMode=false;
  }
- $('geoReprojection').replaceChildren();paint();
+ $('geoReprojection').replaceChildren();updateRotationReadout();paint();
 }
 
 
 function depthRemovedView(){
  if(!currentValid())return;
- overviewMode=false;overviewProjectionMode=false;depthRemovedMode=true;camera.selected=null;
+ overviewMode=false;overviewProjectionMode=false;depthRemovedMode=true;camera.selected=null;camera.yaw=0;camera.pitch=0;camera.roll=0;
  $('geoReprojection').innerHTML=`
  <p><b>Depth removed:</b> orthographic XY projection of the solved 3D constellation.
  Z is ignored entirely, so this shows the reconstructed lateral shape without perspective
  foreshortening or depth displacement. Flattened XY points, line lengths, ratios, and angles are saved with the reconstruction.</p>`;
- paint();
+ updateRotationReadout();paint();
 }
 
 function selectedView(i){
 
  if(!currentValid())return;
 
- overviewMode=false;overviewProjectionMode=false;depthRemovedMode=false;camera.selected=i;camera.yaw=0;camera.pitch=0;
+ overviewMode=false;overviewProjectionMode=false;depthRemovedMode=false;camera.selected=i;camera.yaw=0;camera.pitch=0;camera.roll=0;
 
  camera.target=model.points[i];camera.distance=1;
 
@@ -1176,7 +1191,7 @@ function selectedView(i){
 
  <td>${r.type==='bearing'?fmt(r.bearingErrorDeg,2)+'°':fmt(r.errorPx)+' px'}</td></tr>`).join('')}</tbody></table>`;
 
- paint();
+ updateRotationReadout();paint();
 
 }
 
@@ -1199,9 +1214,33 @@ function cameraCoordinates(p){
  const x=c*a[0]-s*a[2],z=s*a[0]+c*a[2];
 
  const cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);
+ const y=cp*a[1]-sp*z,z2=sp*a[1]+cp*z;
+ const cr=Math.cos(camera.roll),sr=Math.sin(camera.roll);
 
- return [x,cp*a[1]-sp*z,sp*a[1]+cp*z];
+ return [cr*x-sr*y,sr*x+cr*y,z2];
 
+}
+
+function normalizedDegrees(rad){
+ const deg=rad*180/Math.PI;
+ return ((deg+180)%360+360)%360-180;
+}
+
+function updateRotationReadout(){
+ const el=$('geoRotationReadout');if(!el)return;
+ el.textContent=`X ${Math.round(normalizedDegrees(camera.pitch))}° · Y ${Math.round(normalizedDegrees(camera.yaw))}° · Z ${Math.round(normalizedDegrees(camera.roll))}°`;
+}
+
+function rotateView(axis,degrees){
+ if(!model)return;
+ // Special screenshot/depth modes are not arbitrary 3D camera orientations.
+ // Enter a centered free-orbit view before applying the requested rotation.
+ if(overviewMode||depthRemovedMode||overviewProjectionMode||camera.selected!==null)fitView(false);
+ const delta=degrees*Math.PI/180;
+ if(axis==='x')camera.pitch+=delta;
+ else if(axis==='y')camera.yaw+=delta;
+ else if(axis==='z')camera.roll+=delta;
+ updateRotationReadout();paint();
 }
 
 function marker(p,color,label,r=5){
@@ -1426,7 +1465,7 @@ gc.onpointermove=e=>{
 
   camera.yaw+=dx*.008;camera.pitch=clamp(camera.pitch+dy*.008,-Math.PI/2,Math.PI/2);
 
-  pointer.x=e.clientX;pointer.y=e.clientY;paint();
+  pointer.x=e.clientX;pointer.y=e.clientY;updateRotationReadout();paint();
 
  }
 
@@ -1468,6 +1507,7 @@ gc.addEventListener('wheel',e=>{
 },{passive:false});
 
 new ResizeObserver(resizeGeometry).observe(gc);
+updateRotationReadout();
 
 $('geoCalculate').onclick=async()=>{
  try{
@@ -1498,7 +1538,9 @@ $('geoFit').onclick=()=>fitView();
 
 $('geoDepthRemoved').onclick=()=>depthRemovedView();
 
-$('geoOverview').onclick=()=>{depthRemovedMode=false;overviewProjectionMode=false;overviewMode=true;const rows=model.reprojection.filter(r=>r.view==='flat');$('geoReprojection').innerHTML=rows.length?`<p>Overview points used in the joint fit; these are not held-out checks.</p><table><thead><tr><th>Star</th><th>Measured x, y</th><th>Predicted x, y</th><th>Error</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.star}</td><td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td><td>${fmt(r.predicted.x,1)}, ${fmt(r.predicted.y,1)}</td><td>${fmt(r.errorPx,2)} px</td></tr>`).join('')}</tbody></table>`:'';paint()};
+document.querySelectorAll('[data-rotate-axis]').forEach(button=>button.addEventListener('click',()=>rotateView(button.dataset.rotateAxis,Number(button.dataset.rotateStep))));
+
+$('geoOverview').onclick=()=>{depthRemovedMode=false;overviewProjectionMode=false;overviewMode=true;camera.selected=null;camera.yaw=0;camera.pitch=0;camera.roll=0;updateRotationReadout();const rows=model.reprojection.filter(r=>r.view==='flat');$('geoReprojection').innerHTML=rows.length?`<p>Overview points used in the joint fit; these are not held-out checks.</p><table><thead><tr><th>Star</th><th>Measured x, y</th><th>Predicted x, y</th><th>Error</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.star}</td><td>${fmt(r.measured.x,1)}, ${fmt(r.measured.y,1)}</td><td>${fmt(r.predicted.x,1)}, ${fmt(r.predicted.y,1)}</td><td>${fmt(r.errorPx,2)} px</td></tr>`).join('')}</tbody></table>`:'';paint()};
 
 document.querySelectorAll('[data-geo-star]').forEach(b=>b.onclick=()=>selectedView(Number(b.dataset.geoStar)));
 
